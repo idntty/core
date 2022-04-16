@@ -1,12 +1,12 @@
 import { BaseAsset, ApplyAssetContext, ValidateAssetContext } from 'lisk-sdk';
 
 const { isBytes } = require('@liskhq/lisk-validator');
-const { InvalidationAssetSchema, IdentityAssetSchema } = require('../schemas.ts');
+const { ValidationAssetSchema, IdentityAssetSchema } = require('../schemas.ts');
 
 
 export class InValidationAsset extends BaseAsset {
     
-    public schema = InvalidationAssetSchema;
+    public schema = ValidationAssetSchema;
     public name = 'invalidationAsset';
     public id = 3;
 

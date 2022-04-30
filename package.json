@@ -103,6 +103,8 @@
 		"@oclif/config": "1.15.1",
 		"ts-node": "10.7.0",
 		"lisk-commander": "5.1.9",
-		"lisk-sdk": "5.2.1"	
+		"lisk-sdk": "5.2.1",
+		"@liskhq/lisk-framework-dashboard-plugin": "^0.1.4",
+		"@liskhq/lisk-framework-faucet-plugin": "^0.1.4"
 	}
 }

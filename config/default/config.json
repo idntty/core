@@ -51,9 +51,17 @@
 	"network": {
 	  "seedPeers": [
 		{
-		  "ip": "127.0.0.1",
-		  "port": 5000
-		}
+		    "ip": "tn-alpha.idntty.org",
+		    "port": 5000
+		},
+        {
+            "ip": "tn-beta.idntty.org",
+            "port": 5000
+        },
+        {
+            "ip": "tn-gamma.idntty.org",
+            "port": 5000
+        }
 	  ],
 	  "port": 5000
 	},
@@ -66,4 +74,3 @@
 	},
 	"plugins": {}
   }
-  

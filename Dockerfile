@@ -1,4 +1,4 @@
-FROM node:12.22.11-bullseye
+FROM node:16.15-bullseye
 
 RUN addgroup -gid 1100 idntty && useradd -d /home/idntty -m -s /bin/bash -u 1100 -g idntty idntty
 

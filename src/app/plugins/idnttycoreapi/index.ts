@@ -1,0 +1,1 @@
+export { IdnttyCoreApiPlugin } from './idnttycoreapi_plugin';

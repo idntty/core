@@ -1,18 +1,21 @@
 {
-	"name": "idntty",
-	"version": "0.1.0",
-	"description": "idntty lisk application",
-	"author": "idntty team",
-	"license": "ISC",
+	"name": "idntty-core",
+	"version": "0.2.0",
+	"description": "Idntty infrastructure for digital ID & web-of-trust",
+	"author": "Idntty Team <hello@idntty.org>",
+	"license": "Apache-2.0",
 	"keywords": [
 		"blockchain",
-		"lisk",
+		"idntty",
 		"nodejs",
-		"javascript",
-		"typescript"
+		"digitalid",
+		"web-of-trust"
 	],
-	"homepage": "",
-	"repository": {},
+	"homepage": "https://idntty.org",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/idntty/core.git"
+	},
 	"engines": {
 		"node": ">=12.13.0 <=12",
 		"npm": ">=6.12.0"

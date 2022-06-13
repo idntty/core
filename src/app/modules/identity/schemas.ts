@@ -1,52 +1,130 @@
 const IdentityModuleSchema = {
-    $id: 'identity/module',
+    $id: 'idntty/identity/module',
     title: 'Identity module account schema',
-    type: 'object',
-    required: [],
+    type: 'object',    
     properties: {
-        seed: {fieldNumber: 1, dataType: 'bytes'},
-        general: {fieldNumber: 2, dataType: 'bytes'},
-        nationality: {fieldNumber: 3, dataType: 'bytes'},
-        signature: {fieldNumber: 4, dataType: 'bytes'},
-        biometrics: {fieldNumber: 5, dataType: 'bytes'},
-        validators: {fieldNumber: 6, type: 'array', items: {dataType: 'string'}}
+        features: {
+            fieldNumber: 1, 
+            type: 'array',
+            maxItems: 256,
+            items: {
+                type: 'object',
+                required: ['label', 'value'],
+                properties: { 
+                    label: { fieldNumber: 1, dataType: 'string'},
+                    value: { fieldNumber: 2, dataType: 'bytes'},
+                }
+            }
+        },
+        verifications: {
+            fieldNumber: 2, 
+            type: 'array',
+            items: {
+                type: 'object',
+                required: ['label', 'account', 'tx'],
+                properties: { 
+                    label: { fieldNumber: 1, dataType: 'string'},
+                    account: { fieldNumber: 2, dataType: 'bytes'},
+                    tx: { fieldNumber: 3, dataType: 'bytes'},
+                }
+            }
+        },
     },
-    default: {validators: []}
+    default: {features: [], verifications: []}
 };
 
 
-const IdentityAssetSchema = {
-    $id: 'identity/asset',
-    title: 'Privatedata transaction asset for identity module',
+const setFeatureAssetSchema = {
+    $id: 'idntty/identity/setfeature',
+    title: 'Asset schema to set or update account features for identity module',
     type: 'object',
-    required: [],
+    required: ['features'],
     properties: {
-        seed: {fieldNumber: 1, dataType: 'bytes', maxLength: 32},
-        general: {fieldNumber: 2, dataType: 'bytes', maxLength: 32},
-        nationality: {fieldNumber: 3, dataType: 'bytes', maxLength: 32},
-        signature: {fieldNumber: 4, dataType: 'bytes', maxLength: 32},
-        biometrics: {fieldNumber: 5, dataType: 'bytes', maxLength: 32}
-    }
-};
-
-const ValidationAssetSchema = {
-    $id: 'identity/validation',
-	title: 'Validation transaction asset for identity module',
-    type: 'object',
-    required: ['recipientAddress'],
-    properties: {
-        recipientAddress: {fieldNumber: 1, dataType: 'bytes', minLength: 20, maxLength: 20},
-        identity: {
-            fieldNumber: 2,
-            type: 'object',
-            properties: { 
-                general: {fieldNumber: 1, dataType: 'bytes', maxLength: 32},
-                nationality: {fieldNumber: 2, dataType: 'bytes', maxLength: 32},
-                signature: {fieldNumber: 3, dataType: 'bytes', maxLength: 32},
-                biometrics: {fieldNumber: 4, dataType: 'bytes', maxLength: 32}
+        features: {
+            fieldNumber: 1, 
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: {
+                type: 'object',
+                required: ['label','value'],
+                properties: { 
+                    label: { fieldNumber: 1, dataType: 'string',  maxLength: 16},
+                    value: { fieldNumber: 2, dataType: 'bytes',  maxLength: 32},
+                }
             }
         }
     }
 };
 
-module.exports = {IdentityModuleSchema, IdentityAssetSchema, ValidationAssetSchema}
+const removeFeatureAssetSchema = {
+    $id: 'idntty/identity/removefeature',
+    title: 'Asset schema to remove account features for identity module',
+    type: 'object',
+    required: ['features'],
+    properties: {
+        features: {
+            fieldNumber: 1, 
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: {
+                type: 'object',
+                required: ['label'],
+                properties: { 
+                    label: { fieldNumber: 1, dataType: 'string',  maxLength: 16},
+                }
+            }
+        }
+    }
+};
+
+const validateFeatureAssetSchema = {
+    $id: 'idntty/identity/validatefeature',
+	title: 'Asset schema to validate account features for identity module',
+    type: 'object',
+    required: ['recipientAddress','features'],
+    properties: {
+        recipientAddress: {fieldNumber: 1, dataType: 'bytes', minLength: 20, maxLength: 20},
+        features: {
+            fieldNumber: 2,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: {
+                type: 'object',
+                required: ['label', 'value'],
+                properties: { 
+                    label: { fieldNumber: 1, dataType: 'string',  maxLength: 16},
+                    value: { fieldNumber: 2, dataType: 'bytes',  maxLength: 32},
+                }
+            }
+        }
+    }
+};
+
+const invalidateFeatureAssetSchema = {
+    $id: 'idntty/identity/invalidatefeature',
+	title: 'Asset schema to invalidate account features for identity module',
+    type: 'object',
+    required: ['recipientAddress','features'],
+    properties: {
+        recipientAddress: {fieldNumber: 1, dataType: 'bytes', minLength: 20, maxLength: 20},
+        features: {
+            fieldNumber: 2,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: {
+                type: 'object',
+                required: ['label'],
+                properties: { 
+                    label: { fieldNumber: 1, dataType: 'string',  maxLength: 16},
+                }
+            }
+        }
+    }
+};
+
+
+module.exports = {IdentityModuleSchema, setFeatureAssetSchema, removeFeatureAssetSchema, validateFeatureAssetSchema, invalidateFeatureAssetSchema}

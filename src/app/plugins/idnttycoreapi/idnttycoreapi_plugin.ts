@@ -15,16 +15,18 @@ import * as rateLimit from 'express-rate-limit';
 import * as middlewares from './middlewares';
 import * as controllers from './controllers';
 
+/*
 private _server!: Server;
 private _app!: Express;
 private _channel!: BaseChannel;
+*/
 
 export class IdnttyCoreApiPlugin extends BasePlugin {    
     
     public name = pluginPackage.name;
 
     public static get alias(): string {
-	    return 'idnttycoreapi';
+	    return pluginPackage.name;
     }
     
     public static get info(): PluginInfo {
@@ -58,6 +60,7 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
                 this._registerControllers();
                 
                 if (this._userPrivateDataPlugin) { this._registerUserPrivateDataControllers(); }
+                if (this._IdnttyTransactionHistoryPlugin) { this._registerTransactionHistoryControllers(); }
                 
                 this._registerAfterMiddlewares(this.options);
                 this._server = this._app.listen(this.options.port, this.options.host);
@@ -68,15 +71,8 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
                 this._userPrivateDataPlugin = true;
             });
 
-
-            this._channel.subscribe('app:block:new', (data) => {
-                const decodedBlock = this.codec.decodeBlock(data.block);
-                console.log(decodedBlock);
-            });
-
-            this._channel.subscribe('app:block:delete', (data) => {
-                const decodedBlock = this.codec.decodeBlock(data.block);
-                console.log(data);
+            this._channel.once('idnttytxhistory:loading:finished', async () => {
+                this._IdnttyTransactionHistoryPlugin = true;
             });
                     
         }
@@ -102,15 +98,23 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
         this._app.get('/api/transactions/:id', controllers.transactions.getTransaction(this._channel, this.codec),);
         this._app.post('/api/transactions', controllers.transactions.postTransaction(this._channel, this.codec),);
 
+        this._app.get('/api/blocks/:id', controllers.blocks.getBlockById(this._channel, this.codec));
+        this._app.get('/api/blocks', controllers.blocks.getBlockByHeight(this._channel, this.codec));
+
         this._app.get('/api/node/info', controllers.node.getNodeInfo(this._channel));
     }
 
     private _userPrivateDataPlugin = false;
+    private _IdnttyTransactionHistoryPlugin = false;
 
     private _registerUserPrivateDataControllers(): void {      
         this._app.get('/api/data/account', controllers.data.getPrivateData(this._channel, this.codec));
         this._app.post('/api/data/account', controllers.data.postPrivateData(this._channel, this.codec));
         this._app.delete('/api/data/account', controllers.data.deletePrivateData(this._channel, this.codec));
+    }
+
+    private _registerTransactionHistoryControllers(): void {      
+        this._app.get('/api/account/transactions/:address', controllers.accounts.getAccountTransactions(this._channel, this.codec),);
     }
 
 }

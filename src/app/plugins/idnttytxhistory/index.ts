@@ -1,0 +1,1 @@
+export { IdnttyTransactionHistoryPlugin } from './idnttytxhistory_plugin';

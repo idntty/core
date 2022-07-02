@@ -37,25 +37,20 @@ export const getAccountTransactions = (channel: BaseChannel, codec: PluginCodec)
     res: Response,
     next: NextFunction,
 ): Promise<void> => {
-    const accountAddress = req.params.address;
 
+    const accountAddress = req.params.address;
     if (!isHexString(accountAddress)) {
-	res.status(400).send({
-	    errors: [{ message: 'The Address parameter should be a hex string.' }],
-	});
-	return;
+		res.status(400).send({
+			errors: [{ message: 'The Address parameter should be a hex string.' }],
+		});
+		return;
     }
 
     try {
-
-        const accountTransactios: Object[] = await channel.invoke('idnttyapi:getAccountTransactions', {
+        const accountTransactios: Object[] = await channel.invoke('idnttytxhistory:getAccountTransactions', {
 	    address: accountAddress,
 	});
         res.status(200).send({ data: accountTransactios, meta: {} });
-
-        //const account: Object = await channel.invoke('idnttyapi:hello');
-        //res.status(200).send({ data: account, meta: {} });
-
     } catch (err) {
 	if ((err as Error).message.startsWith('Specified key accounts:address')) {
 	    res.status(404).send({

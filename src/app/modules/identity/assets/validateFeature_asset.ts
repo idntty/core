@@ -3,10 +3,10 @@ import { BaseAsset, ApplyAssetContext, ValidateAssetContext } from 'lisk-sdk';
 const { validateFeatureAssetSchema } = require('../schemas.ts');
 
 
-export class validateFeatureAsset extends BaseAsset {
+export class validateFeature extends BaseAsset {
     
     public schema = validateFeatureAssetSchema;
-    public name = 'validateFeatureAsset';
+    public name = 'validateFeature';
     public id = 11;
 
     // Validate asset fields

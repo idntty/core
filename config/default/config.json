@@ -43,10 +43,9 @@
 	  "delegateListRoundOffset": 2
 	},
 	"forging": {
-	  "force": true,
+	  "force": false,
 	  "waitThreshold": 2,
-	  "delegates": [],
-	  "defaultPassword": "source pet lazy second planet liquid carry balcony borrow tribe where industry"
+	  "delegates": []	  
 	},
 	"network": {
 	  "seedPeers": [

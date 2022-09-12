@@ -7,5 +7,6 @@ import * as delegates from './delegates';
 import * as forgers from './forgers';
 import * as forging from './forging';
 import * as data from './data';
+import * as faucet from './faucet';
 
-export { accounts, blocks, node, transactions, peers, delegates, forgers, forging, data };
+export { accounts, blocks, node, transactions, peers, delegates, forgers, forging, data, faucet };

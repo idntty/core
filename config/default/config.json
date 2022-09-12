@@ -10,11 +10,11 @@
 	},
 	"rpc": {
 	  "enable": false,
-	  "mode": "ipc",
-	  "port": 8080
+	  "mode": "ws",
+	  "port": 9000
 	},
 	"genesisConfig": {
-	  "blockTime": 10,
+	  "blockTime": 30,
 	  "communityIdentifier": "sdk",
 	  "maxPayloadLength": 15360,
 	  "bftThreshold": 68,
@@ -74,7 +74,7 @@
 	},
 	"plugins": {
 		"idnttycoreapi": {
-			"enable": true,
+			"enable": false,
 			"port": 8000,
 			"host": "127.0.0.1",
 			"whiteList": ["127.0.0.1"],

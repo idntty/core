@@ -51,9 +51,11 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
 
     public async load(channel: BaseChannel): Promise<void> {        
 
-        if (this.options.enabled) {
+        if (this.options.enable) {
             this._app = express();
 	        this._channel = channel;
+
+
 
             this._channel.once('app:ready', async () => {                
                 this._registerMiddlewares(this.options);                                

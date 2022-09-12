@@ -1,12 +1,12 @@
 {
-	"label": "beta-sdk-app",
-	"version": "0.0.0",
+	"label": "idntty",
+	"version": "0.2.0",
 	"networkVersion": "1.0",
-	"rootPath": "~/.lisk",
+	"rootPath": "~/.idnttycore",
 	"logger": {
 	  "fileLogLevel": "info",
 	  "consoleLogLevel": "info",
-	  "logFileName": "lisk.log"
+	  "logFileName": "idnttycore.log"
 	},
 	"rpc": {
 	  "enable": false,
@@ -15,7 +15,7 @@
 	},
 	"genesisConfig": {
 	  "blockTime": 30,
-	  "communityIdentifier": "sdk",
+	  "communityIdentifier": "idntty_testnet",
 	  "maxPayloadLength": 15360,
 	  "bftThreshold": 68,
 	  "minFeePerByte": 1000,

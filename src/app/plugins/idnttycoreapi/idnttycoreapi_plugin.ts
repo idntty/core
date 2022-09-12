@@ -61,6 +61,7 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
                 
                 if (this._userPrivateDataPlugin) { this._registerUserPrivateDataControllers(); }
                 if (this._IdnttyTransactionHistoryPlugin) { this._registerTransactionHistoryControllers(); }
+                if (this._IdnttyFaucetPlugin) { this._registerFaucetControllers(); }
                 
                 this._registerAfterMiddlewares(this.options);
                 this._server = this._app.listen(this.options.port, this.options.host);
@@ -74,7 +75,10 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
             this._channel.once('idnttytxhistory:loading:finished', async () => {
                 this._IdnttyTransactionHistoryPlugin = true;
             });
-                    
+               
+            this._channel.once('idnttyfaucet:loading:finished', async () => {
+                this._IdnttyFaucetPlugin = true;
+            });
         }
     }
 
@@ -102,19 +106,36 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
         this._app.get('/api/blocks', controllers.blocks.getBlockByHeight(this._channel, this.codec));
 
         this._app.get('/api/node/info', controllers.node.getNodeInfo(this._channel));
+        this._app.get('/api/node/transactions', controllers.node.getTransactions(this._channel, this.codec),);
+
+        this._app.get('/api/peers', controllers.peers.getPeers(this._channel));
+        this._app.get('/api/delegates', controllers.delegates.getDelegates(this._channel, this.codec));
+        this._app.get('/api/forgers', controllers.forgers.getForgers(this._channel, this.codec));
+        this._app.get('/api/forging/info', controllers.forging.getForgingStatus(this._channel));
+        this._app.patch('/api/forging', controllers.forging.updateForging(this._channel));
     }
 
     private _userPrivateDataPlugin = false;
     private _IdnttyTransactionHistoryPlugin = false;
-
+    private _IdnttyFaucetPlugin = false;
+    
     private _registerUserPrivateDataControllers(): void {      
-        this._app.get('/api/data/account', controllers.data.getPrivateData(this._channel, this.codec));
-        this._app.post('/api/data/account', controllers.data.postPrivateData(this._channel, this.codec));
-        this._app.delete('/api/data/account', controllers.data.deletePrivateData(this._channel, this.codec));
+        this._app.get('/api/data/private', controllers.data.getPrivateData(this._channel, this.codec));
+        this._app.post('/api/data/private', controllers.data.postPrivateData(this._channel, this.codec));
+        
+        this._app.get('/api/data/shared/:id', controllers.data.getSharedData(this._channel, this.codec));
+        this._app.get('/api/data/shared/', controllers.data.getSharedDataKeys(this._channel, this.codec));
+        this._app.post('/api/data/shared', controllers.data.postSharedData(this._channel, this.codec));
     }
 
     private _registerTransactionHistoryControllers(): void {      
         this._app.get('/api/account/transactions/:address', controllers.accounts.getAccountTransactions(this._channel, this.codec),);
+    }
+
+    private _registerFaucetControllers(): void {              
+        this._app.post('/api/faucet/authorize', controllers.faucet.authorize(this._channel, this.codec));
+        this._app.post('/api/faucet/fundbyemail', controllers.faucet.fundByEmail(this._channel, this.codec));
+        this._app.post('/api/faucet/fundbyaccount', controllers.faucet.fundByAccount(this._channel, this.codec));
     }
 
 }

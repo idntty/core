@@ -87,18 +87,18 @@ export const getTransactionsTop = (channel: BaseChannel, codec: PluginCodec) => 
     const { limit, offset } = req.query;
 
     if (limit && !isNumberString(limit)) {
-	res.status(400).send({
-	    errors: [{ message: 'The limit query parameter should be a number.' }],
-	});
-	return;
+		res.status(400).send({
+			errors: [{ message: 'The limit query parameter should be a number.' }],
+		});
+		return;
     }
-    const limitNumber = Number(limit) || 10;
+    const limitNumber = Number(limit) || 25;
 
     if (offset && !isNumberString(offset)) {
-	res.status(400).send({
-	    errors: [{ message: 'The offset query parameter should be a number.' }],
-	});
-	return;
+		res.status(400).send({
+			errors: [{ message: 'The offset query parameter should be a number.' }],
+		});
+		return;
     }
     const offsetNumber = Number(offset) || 0;
 

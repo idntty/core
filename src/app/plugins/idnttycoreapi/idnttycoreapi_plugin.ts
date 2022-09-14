@@ -109,6 +109,7 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
 
         this._app.get('/api/node/info', controllers.node.getNodeInfo(this._channel));
         this._app.get('/api/node/transactions', controllers.node.getTransactions(this._channel, this.codec),);
+        this._app.get('/api/node/transactions/last/', controllers.node.getTransactionsTop(this._channel, this.codec),);
 
         this._app.get('/api/peers', controllers.peers.getPeers(this._channel));
         this._app.get('/api/delegates', controllers.delegates.getDelegates(this._channel, this.codec));

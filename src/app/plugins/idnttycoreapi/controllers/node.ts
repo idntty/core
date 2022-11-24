@@ -15,6 +15,19 @@ export const getNodeInfo = (channel: BaseChannel) => async (
 	}
 };
 
+export const getNodeSchemas = (channel: BaseChannel) => async (
+	_req: Request,
+	res: Response,
+	next: NextFunction,
+): Promise<void> => {
+	try {
+		const nodeSchemaInfo = await channel.invoke('app:getSchema');
+		res.status(200).send({ data: nodeSchemaInfo, meta: {} });
+	} catch (err) {
+		next(err);
+	}
+};
+
 export const getTransactions = (channel: BaseChannel, codec: PluginCodec) => async (
 	req: Request,
 	res: Response,

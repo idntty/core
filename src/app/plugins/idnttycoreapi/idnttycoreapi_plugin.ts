@@ -15,11 +15,6 @@ import * as rateLimit from 'express-rate-limit';
 import * as middlewares from './middlewares';
 import * as controllers from './controllers';
 
-/*
-private _server!: Server;
-private _app!: Express;
-private _channel!: BaseChannel;
-*/
 
 export class IdnttyCoreApiPlugin extends BasePlugin {    
     
@@ -64,6 +59,7 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
                 if (this._userPrivateDataPlugin) { this._registerUserPrivateDataControllers(); }
                 if (this._IdnttyTransactionHistoryPlugin) { this._registerTransactionHistoryControllers(); }
                 if (this._IdnttyFaucetPlugin) { this._registerFaucetControllers(); }
+                if (this._IdnttyVPNPlugin) { this._registerVPNControllers(); }
                 
                 this._registerAfterMiddlewares(this.options);
                 this._server = this._app.listen(this.options.port, this.options.host);
@@ -80,6 +76,10 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
                
             this._channel.once('idnttyfaucet:loading:finished', async () => {
                 this._IdnttyFaucetPlugin = true;
+            });
+
+            this._channel.once('idnttyvpn:loading:finished', async () => {
+                this._IdnttyVPNPlugin = true;
             });
         }
     }
@@ -108,6 +108,7 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
         this._app.get('/api/blocks', controllers.blocks.getBlockByHeight(this._channel, this.codec));
 
         this._app.get('/api/node/info', controllers.node.getNodeInfo(this._channel));
+        this._app.get('/api/node/schema', controllers.node.getNodeSchemas(this._channel));
         this._app.get('/api/node/transactions', controllers.node.getTransactions(this._channel, this.codec),);
         this._app.get('/api/node/transactions/last/', controllers.node.getTransactionsTop(this._channel, this.codec),);
 
@@ -139,6 +140,10 @@ export class IdnttyCoreApiPlugin extends BasePlugin {
         this._app.post('/api/faucet/authorize', controllers.faucet.authorize(this._channel, this.codec));
         this._app.post('/api/faucet/fundbyemail', controllers.faucet.fundByEmail(this._channel, this.codec));
         this._app.post('/api/faucet/fundbyaccount', controllers.faucet.fundByAccount(this._channel, this.codec));
+    }
+
+    private _registerVPNControllers(): void {
+        this._app.get('/api/vpn/servers', controllers.vpn.getServerList(this._channel, this.codec));       
     }
 
 }

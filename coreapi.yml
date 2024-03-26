@@ -1,0 +1,344 @@
+openapi: "3.0.2"
+info:
+  version: 1.0.0
+  title: IDNTTY Core API for digital identity
+  contact: 
+    name: API Support
+    url: 'https://api.idntty.io/v1'
+    email: support@idntty.org
+paths:
+  /plugins/digitalidentity:    
+    get:
+      summary: Retrieve digital identity data
+      description: This method allows a client to retrieve their own data linked to their digital identity. For an identity type account, the data will be returned in an encrypted form for the user to decrypt with their private key. For an authority account, the data will be returned unencrypted and publicly available.
+      security:        
+        - idnttySignature: []
+      responses:
+        200:
+          description: Successful retrieval of digital identity data
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/dio'
+        401:
+          description: Unauthorized, invalid data in idnttySignature
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/defaultResp'          
+        404:
+          description: Digital identity not found by public key
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/defaultResp'             
+    post:
+      summary: Update digital identity data
+      description: This method allows identity and authority accounts to update existing personal data. For identity accounts, they need to send their updated data in an encrypted form, while for authority accounts, the data must be sent unencrypted. When presenting the data, it is necessary to hash the original state and new state of data for proof of integrity as well as for record keeping. The returned data will include an operation status message.
+      security:        
+        - idnttySignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dio'
+      responses:
+        200:
+          description: Successful update digital identity data
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/dio'          
+        401:
+          description: Unauthorized, invalid data in idnttySignature
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/defaultResp'          
+        404:
+          description: Digital identity not found by public key
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/defaultResp' 
+    delete:
+      summary: Delete digital identity data
+      description: This method allows a client to completely delete all personal data linked to their digital identity. It's important to note that this operation is irreversible. A successful request will return a status message indicating the successful deletion of the data.
+      responses:
+        200:
+          description: Successful delete digital identity data
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/defaultResp'       
+        401:
+          description: Unauthorized, invalid data in idnttySignature
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/defaultResp'
+        404:
+          description: Digital identity not found by public key
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/defaultResp'   
+  /plugins/digitalidentity/{identifier}:
+    get:
+      summary: Retrieve digital identity data
+      description: This method allows a client to retrieve their own data linked to their digital identity. For an identity type account, the data will be returned in an encrypted form for the user to decrypt with their private key. For an authority account, the data will be returned unencrypted and publicly available.
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          schema:
+            type: string
+            format: bytes
+      responses:
+        200:
+          description: Successful retrieval of digital identity data
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/dio'
+        404:
+          description: Digital identity not found by public key
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/defaultResp'  
+
+  /plugins/auth/register:
+    post:
+      summary: Register new device
+      operationId: register_operation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/authSigupReq'
+      responses:
+        200:
+          description: Successful Registration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/authSigupResp'
+  /plugins/auth/login:
+    post:
+      summary: Authenticate with device
+      operationId: authenticate_operation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/authSiginReq'
+      responses:
+        200:
+          description: Successful Authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/authSiginResp'
+
+  /plugins/badges:
+    get:
+      summary: Retrieves all digital badges received
+      description: This method fetches all the digital badges associated with an account. The result set depends on the type of account involved. This GET request retrieves all the digital badges that the identity account user has acquired from different authority accounts. The badges are stored in an encrypted format and displayed for user viewing. This method is not applicable for authority accounts.
+      security:        
+        - idnttySignature: []
+      responses:
+        200:
+          description: Successful get operation
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/dbo'
+        404:
+          description: Public Key not found    
+    post:
+      summary: Add a new digital badge
+      description: This method allows account users to add or create new digital badges. This POST request enables an identity account user to add a digital badge received from an authority account into their profile. The new badge must exist in the set of available badges. This POST request for an authority account allows the authority user to create a new digital badge that they can assign to identity accounts.
+      security:        
+        - idnttySignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                badgeName:
+                  type: string
+      responses:
+        201:
+          description: Badge created successfully
+        401:
+          description: Unauthorized, invalid digital signature
+        404:
+          description: Public Key not found
+    delete:
+      summary: Removes a digital badge
+      description: This method enables an account user to revoke or permanently delete digital badges. This DELETE request permits an identity account user to remove a digital badge from their profile that they no longer want to display. This DELETE request empowers an authority account to delete a badge that they have created, given that it's not assigned to any identity account. If the badge is currently assigned, instead of deletion, the badge is moved to an archived state for potential future use.
+      responses:
+        200:
+          description: Successful delete operation
+        401:
+          description: Unauthorized, invalid digital signature
+        404:
+          description: Badge id not found
+  /plugins/badges/{identifier}:
+    get:
+      summary: Retrieves all digital badges
+      description: This method fetches all the digital badges associated with an account. The result set depends on the type of account involved.
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Successful get operation
+          content:
+            application/json:
+                schema:
+                    $ref: '#/components/schemas/dbo'
+        404:
+          description: Public Key not found
+
+components:
+  schemas:
+    authSigupReq:
+      type: object
+      properties:
+        username:
+          type: string
+        attestation:
+          type: string
+    authSigupResp:
+      type: object
+      properties:
+        status:
+          type: string
+        challenge:
+          type: string
+    authSiginReq:
+      type: object
+      properties:
+        username:
+          type: string
+        assertion:
+          type: string
+    authSiginReap:
+      type: object
+      properties:
+        status:
+          type: string
+        challenge:
+          type: string
+    defaultResp:
+      type: object
+      properties:
+        status:
+          type: boolean
+        error:
+          type: string
+      required:
+         - status        
+    dio:
+        description: The DID resolution result.
+        type: array
+        maxItems: 64
+        items: 
+            type: object            
+            properties:
+                label:
+                    type: string
+                    minLength: 3
+                    maxLength: 16
+                value:
+                    type: string
+                    format: bytes
+                seed:
+                    type: string
+                    format: bytes
+                size:
+                    type: integer
+                    minimum: 0
+                    maximum: 3
+            required:
+                - label
+                - value
+    dbo:
+        description: The DID resolution result.
+        type: array
+        maxItems: 128
+        items: 
+            type: object
+            properties:
+                id:
+                  type: string
+                  format: bytes
+                assignment:
+                  type: string
+                  format: bytes
+                name:
+                  type: string
+                  minLength: 4
+                  maxLength: 32
+                description:
+                  type: string
+                  minLength: 8
+                  maxLength: 256
+                image:
+                  type: string
+                  format: url                 
+                issuingOrganizationId:
+                  type: string
+                  format: bytes                  
+                issuingOrganizationName:
+                  type: string
+                earningCriteria:
+                  type: string
+                issueDate:
+                  type: string
+                  format: date
+                expiryDate:
+                  type: string
+                  format: date
+                skillTags:
+                   type: array
+                   maxItems: 16
+                   items:
+                        type: object
+                        properties:
+                            tagName:
+                                type: string
+                                minLength: 4
+                                maxLength: 32
+                            tagId:
+                                type: string
+                                format: uuid
+                        required:
+                            - tagId
+                            - tagName
+            required:
+                - id
+                - name
+                - description
+                - image
+                - issuingOrganizationId
+                - issueDate                
+  securitySchemes:
+    idnttySignature:      
+      description: Encoded JWT token with publicKey, current height and signature
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - idnttySignature: []

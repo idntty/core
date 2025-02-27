@@ -348,6 +348,9 @@ export const saveBadgeImage = async ({
         data: {
             public_key: publicKey,
             fileKey,
+            address: cryptography.address.getKlayr32AddressFromPublicKey(
+                Buffer.from(publicKey, 'hex'),
+            ),
         },
     });
 
@@ -355,6 +358,13 @@ export const getBadgeImagesByPublicKey = async (publicKey: string) =>
     prisma.badge.findMany({
         where: {
             public_key: publicKey,
+        },
+    });
+
+export const getBadgeImagesByAddress = async (address: string) =>
+    prisma.badge.findMany({
+        where: {
+            address,
         },
     });
 

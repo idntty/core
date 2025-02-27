@@ -31,7 +31,7 @@ import {
 import { toPublicKeyObject, verifyJWT } from '../../../../lib/utils';
 
 const rpName = 'WebAuthn Server';
-const rpID = 'd1ub87pewhnkr8.cloudfront.net';
+const rpID = 'my.idntty.io';
 // const rpID = 'localhost';
 // const rpID = 'idntty-app.vercel.app';
 const origin = `https://${rpID}`;

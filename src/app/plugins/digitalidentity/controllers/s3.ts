@@ -3,7 +3,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
-import { saveBadgeImage, getBadgeImagesByPublicKey } from '../database';
+import { saveBadgeImage, getBadgeImagesByAddress } from '../database';
 import { uuidv4 } from '../../../../lib/utils';
 
 const s3Client = new S3Client({ region: 'eu-west-1' });
@@ -11,7 +11,9 @@ const s3Client = new S3Client({ region: 'eu-west-1' });
 export const getUploadUrl =
     () =>
     async (
-        req: FastifyRequest<{ Body: { publicKey: string; fileName: string; contentType: string } }>,
+        req: FastifyRequest<{
+            Body: { publicKey: string; fileName: string; contentType: string };
+        }>,
         res: FastifyReply,
     ) => {
         const { publicKey, fileName, contentType } = req.body;
@@ -47,18 +49,18 @@ export const getUploadedImages =
     () =>
     async (
         req: FastifyRequest<{
-            Querystring: { publicKey: string };
+            Querystring: { address: string };
         }>,
         res: FastifyReply,
     ) => {
-        const { publicKey } = req.query;
+        const { address } = req.query;
 
-        if (!publicKey) {
-            return res.status(400).send({ error: 'User ID not found' });
+        if (!address) {
+            return res.status(400).send({ error: 'Address not found' });
         }
 
         try {
-            const badges = await getBadgeImagesByPublicKey(publicKey);
+            const badges = await getBadgeImagesByAddress(address);
 
             return res.send(badges.map(badge => badge.fileKey));
         } catch (error) {

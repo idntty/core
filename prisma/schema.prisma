@@ -67,6 +67,7 @@ model Badge {
   id         Int    @id @default(autoincrement())
   fileKey    String
   public_key String
+  address    String
   user       User   @relation(fields: [public_key], references: [public_key])
 
   @@map("badges")

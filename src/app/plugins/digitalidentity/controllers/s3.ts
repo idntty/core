@@ -12,23 +12,41 @@ export const getUploadUrl =
     () =>
     async (
         req: FastifyRequest<{
-            Body: { publicKey: string; fileName: string; contentType: string };
+            Body: { publicKey: string; fileName: string; contentType: string; folder?: string };
         }>,
         res: FastifyReply,
     ) => {
-        const { publicKey, fileName, contentType } = req.body;
+        const { publicKey, fileName, contentType, folder = '/' } = req.body;
+
+        // List of allowed folders (plus root "/")
+        const allowedFolders = ['/', 'images', 'badges'];
+
+        if (!allowedFolders.includes(folder)) {
+            return res.status(400).send({ error: 'Invalid folder. Upload not allowed.' });
+        }
+
+        // Determine the full path to check for existing file
+        const checkPath = folder === '/' ? fileName : `${folder}/${fileName}`;
 
         let newFileName = '';
         try {
-            await s3Client.send(new HeadObjectCommand({ Bucket: 'io.idntty.cdn', Key: fileName }));
+            await s3Client.send(
+                new HeadObjectCommand({
+                    Bucket: 'io.idntty.cdn',
+                    Key: checkPath,
+                }),
+            );
             newFileName = fileName;
         } catch (error) {
             newFileName = uuidv4();
         }
 
+        // Create the full key with folder path (handle root folder case)
+        const fullKey = folder === '/' ? newFileName : `${folder}/${newFileName}`;
+
         const command = new PutObjectCommand({
             Bucket: 'io.idntty.cdn',
-            Key: newFileName,
+            Key: fullKey,
             ContentType: contentType,
             // Expires: new Date(),
         });
@@ -37,7 +55,12 @@ export const getUploadUrl =
             const url = await getSignedUrl(s3Client, command, {
                 expiresIn: 3600,
             });
-            await saveBadgeImage({ publicKey, fileKey: newFileName });
+
+            // Only save badge image references if this is a badge upload
+            if (folder === 'badges') {
+                await saveBadgeImage({ publicKey, fileKey: newFileName });
+            }
+
             return res.send({ url, newFileName });
         } catch (error) {
             console.error(error);

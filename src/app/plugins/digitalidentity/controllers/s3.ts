@@ -12,7 +12,12 @@ export const getUploadUrl =
     () =>
     async (
         req: FastifyRequest<{
-            Body: { publicKey: string; fileName: string; contentType: string; folder?: string };
+            Body: {
+                publicKey: string;
+                fileName: string;
+                contentType: string;
+                folder?: string;
+            };
         }>,
         res: FastifyReply,
     ) => {
@@ -61,7 +66,13 @@ export const getUploadUrl =
                 await saveBadgeImage({ publicKey, fileKey: newFileName });
             }
 
-            return res.send({ url, newFileName });
+            // Return the full path including folder in the response
+            // This is the key change - return the full path so frontend doesn't need to add folder
+            return res.send({
+                url,
+                newFileName: fullKey, // Return the full path including folder
+                fileName: newFileName, // Also return just the filename for backward compatibility
+            });
         } catch (error) {
             console.error(error);
             return res.status(500).send({ error: `Error generating a presigned URL: ${error}` });

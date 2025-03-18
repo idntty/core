@@ -55,4 +55,4 @@ config/default/passphrase.json
 config/default/config.json
 
 # Spectory
-.spectory/
+.spectory/*

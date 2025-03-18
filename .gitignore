@@ -53,3 +53,6 @@ config/default/dev-validators-eu.json
 config/default/dev-validators-ap.json
 config/default/passphrase.json
 config/default/config.json
+
+# Spectory
+.spectory/

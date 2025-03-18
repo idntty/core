@@ -20,7 +20,14 @@ export class ValidateFeatureCommand extends Modules.BaseCommand {
     public async verify(
         _context: StateMachine.CommandVerifyContext<Params>,
     ): Promise<StateMachine.VerificationResult> {
-        const { params } = _context;
+        const { params, transaction } = _context;
+
+        if (transaction.fee < 499000000) {
+            return {
+                status: StateMachine.VerifyStatus.FAIL,
+                error: new Error('Fee is too low. Min fee for validateFeature is 499000000'),
+            };
+        }
 
         const uniqueLabels: string[] = [];
         params.features.forEach(feature => {

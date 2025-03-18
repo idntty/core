@@ -436,3 +436,11 @@ export const addBadgeTags = async (publicKey: string, tags: string[]) => {
         },
     });
 };
+
+export const deleteBadgeByFileKey = async (fileKey: string, publicKey: string) =>
+    prisma.badge.deleteMany({
+        where: {
+            fileKey,
+            public_key: publicKey,
+        },
+    });

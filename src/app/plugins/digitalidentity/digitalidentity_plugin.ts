@@ -77,6 +77,15 @@ export class DigitalidentityPlugin extends Plugins.BasePlugin {
             },
             controllers.s3.getUploadUrl(),
         );
+
+        server.post(
+            '/remove-uploaded-image',
+            {
+                preHandler: controllers.auth.jwtVerificationPreHandler(),
+            },
+            controllers.s3.removeUploadedImage(),
+        );
+
         server.get('/get-uploaded-images', controllers.s3.getUploadedImages());
 
         server.get('/get-notifications', controllers.events.getNotifications());

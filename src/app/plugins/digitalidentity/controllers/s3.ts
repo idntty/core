@@ -1,9 +1,14 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import {
+    S3Client,
+    PutObjectCommand,
+    HeadObjectCommand,
+    DeleteObjectCommand,
+} from '@aws-sdk/client-s3';
 
-import { saveBadgeImage, getBadgeImagesByAddress } from '../database';
+import { saveBadgeImage, getBadgeImagesByAddress, deleteBadgeByFileKey } from '../database';
 import { uuidv4 } from '../../../../lib/utils';
 
 const s3Client = new S3Client({ region: 'eu-west-1' });
@@ -100,5 +105,46 @@ export const getUploadedImages =
         } catch (error) {
             console.error(error);
             return res.status(500).send({ error: `Error getting images: ${error}` });
+        }
+    };
+
+export const removeUploadedImage =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Body: {
+                publicKey: string;
+                fileName: string;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { fileName, publicKey } = req.body;
+
+        if (!fileName) {
+            return res.status(400).send({ error: 'File name not provided' });
+        }
+
+        try {
+            // Delete from database using publicKey
+            const result = await deleteBadgeByFileKey(fileName, publicKey);
+
+            // Delete from S3
+            const fullKey = `badges/${fileName}`;
+            await s3Client.send(
+                new DeleteObjectCommand({
+                    Bucket: 'io.idntty.cdn',
+                    Key: fullKey,
+                }),
+            );
+
+            return res.send({
+                success: true,
+                message: 'Badge removed successfully',
+                deletedCount: result.count,
+            });
+        } catch (error) {
+            console.error(error);
+            return res.status(500).send({ error: `Error removing image: ${error}` });
         }
     };

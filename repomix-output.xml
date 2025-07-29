@@ -1,0 +1,4146 @@
+This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+4. Repository files, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: .cursor/, .specstory/, public/, README.md, tsconfig.tsbuildinfo, bin/, config/, src/commands/, test/, testing/
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+<additional_info>
+
+</additional_info>
+
+</file_summary>
+
+<directory_structure>
+prisma/
+  schema.prisma
+src/
+  app/
+    modules/
+      badge/
+        commands/
+          archive_badge_command.ts
+          claim_badge_command.ts
+          create_badge_command.ts
+          issue_badge_command.ts
+        events/
+          newBadgeIssued.ts
+        stores/
+          account.ts
+        endpoint.ts
+        method.ts
+        module.ts
+        schema.ts
+      identity/
+        commands/
+          invalidate_feature_command.ts
+          remove_feature_command.ts
+          set_account_type_command.ts
+          set_feature_command.ts
+          validate_feature_command.ts
+        events/
+          newInvalidation.ts
+          newValidation.ts
+        stores/
+          account.ts
+        endpoint.ts
+        method.ts
+        module.ts
+        schema.ts
+        types.ts
+    plugins/
+      digitalidentity/
+        controllers/
+          account.ts
+          auth.ts
+          badge.ts
+          data.ts
+          events.ts
+          index.ts
+          node.ts
+          s3.ts
+        database.ts
+        digitalidentity_plugin.ts
+        endpoint.ts
+        index.ts
+      event_listener/
+        database.ts
+        event_listener_plugin.ts
+    app.ts
+    index.ts
+    modules.ts
+    plugins.ts
+  types/
+    base58-universal.d.ts
+    digitalbazaar.d.ts
+    uuid.ts
+  send_tx.ts
+.eslintignore
+.eslintrc.js
+.gitignore
+.klayrrc.json
+.lintstagedrc.json
+.nvmrc
+.prettierignore
+.prettierrc
+jest.config.js
+package.json
+tsconfig.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="src/app/plugins/digitalidentity/controllers/badge.ts">
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { Prisma } from '@prisma/client';
+import {
+    updateBadgeMetadata,
+    getUserByAddressOrPublicKey,
+    saveSignedBadgeJson,
+    getSignedBadgeJson,
+    getBadgeByFileKey,
+} from '../database';
+import { publicKeyToDidKey, publicKeyToJwk } from '../../../../lib/utils';
+
+export const getIssuerProfile =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Params: {
+                authorityIdentifier: string;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        try {
+            const { authorityIdentifier } = req.params;
+
+            // Find the authority user
+            const user = await getUserByAddressOrPublicKey(authorityIdentifier);
+
+            if (!user) {
+                return res.status(404).send({
+                    success: false,
+                    error: 'Authority not found',
+                });
+            }
+
+            // Check if user is an authority
+            if (!user.isAuthority) {
+                return res.status(403).send({
+                    success: false,
+                    error: 'The requested identifier is not an authority',
+                });
+            }
+
+            // Convert the public key to DID format using the TypeScript utility
+            const issuerDid = publicKeyToDidKey(user.public_key);
+
+            // Construct profile response
+            const profileJson = {
+                '@context': 'https://purl.imsglobal.org/spec/vc/ob/vocab.html#Profile',
+                id: issuerDid,
+                type: ['Profile'],
+                name: user.username,
+            };
+
+            // Set content type and return the profile JSON
+            res.header('Content-Type', 'application/json');
+            return res.send(profileJson);
+        } catch (error) {
+            console.error('Error fetching issuer profile:', error);
+            return res.status(500).send({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    };
+
+export const getPublicKeyJwk =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Params: {
+                address: string;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        try {
+            const { address } = req.params;
+
+            // Validate and find the user by address
+            const user = await getUserByAddressOrPublicKey(address);
+
+            if (!user) {
+                return res.status(404).send({
+                    success: false,
+                    error: 'User not found',
+                });
+            }
+
+            // Convert the public key to JWK format
+            const jwk = await publicKeyToJwk(user.public_key);
+
+            // Set content type and return the JWK
+            res.header('Content-Type', 'application/json');
+            return res.send(jwk);
+        } catch (error) {
+            console.error('Error converting public key to JWK:', error);
+            return res.status(500).send({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    };
+
+export const saveSignedBadgeJsonHandler =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Body: {
+                fileKey: string;
+                signedBadgeJson: Prisma.InputJsonValue;
+                publicKey: string;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        try {
+            const { fileKey, signedBadgeJson, publicKey } = req.body;
+
+            // Check if badge exists
+            const badge = await getBadgeByFileKey(fileKey);
+            if (!badge) {
+                return res.status(404).send({
+                    success: false,
+                    error: 'Badge not found',
+                });
+            }
+
+            // Verify ownership
+            if (badge.public_key !== publicKey) {
+                return res.status(403).send({
+                    success: false,
+                    error: 'You do not have permission to update this badge',
+                });
+            }
+
+            // Save the signed badge JSON
+            await saveSignedBadgeJson({
+                fileKey,
+                publicKey,
+                signedBadgeJson,
+            });
+
+            return res.send({
+                success: true,
+                message: 'Signed badge JSON saved successfully',
+            });
+        } catch (error) {
+            console.error('Error saving signed badge JSON:', error);
+            return res.status(500).send({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    };
+
+export const getSignedBadgeJsonHandler =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Params: {
+                fileKey: string;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        try {
+            const { fileKey } = req.params;
+
+            // Get the signed badge JSON
+            const badge = await getSignedBadgeJson(fileKey);
+
+            if (!badge) {
+                return res.status(404).send({
+                    success: false,
+                    error: 'Badge not found',
+                });
+            }
+
+            if (!badge.signedBadgeJson) {
+                return res.status(404).send({
+                    success: false,
+                    error: 'Badge has no signed JSON data',
+                });
+            }
+
+            // Set content type and return ONLY the raw signed badge JSON
+            res.header('Content-Type', 'application/json');
+            return res.send(badge.signedBadgeJson);
+        } catch (error) {
+            console.error('Error retrieving signed badge JSON:', error);
+            return res.status(500).send({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    };
+
+export const updateBadgeDefinition =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Body: {
+                fileKey: string;
+                name: string;
+                description: string;
+                criteriaNarrative: string;
+                publicKey: string;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        try {
+            const { fileKey, name, description, criteriaNarrative, publicKey } = req.body;
+
+            // Check if badge exists
+            const badge = await getBadgeByFileKey(fileKey);
+            if (!badge) {
+                return res.status(404).send({
+                    success: false,
+                    error: 'Badge not found',
+                });
+            }
+
+            // Verify ownership
+            if (badge.public_key !== publicKey) {
+                return res.status(403).send({
+                    success: false,
+                    error: 'You do not have permission to update this badge',
+                });
+            }
+
+            // Update badge metadata
+            await updateBadgeMetadata({
+                fileKey,
+                publicKey,
+                name,
+                description,
+                criteriaNarrative,
+            });
+
+            return res.send({ success: true });
+        } catch (error) {
+            console.error('Error updating badge definition:', error);
+            return res.status(500).send({
+                success: false,
+                error: 'Internal server error',
+            });
+        }
+    };
+</file>
+
+<file path="src/app/plugins/digitalidentity/index.ts">
+export { DigitalidentityPlugin } from './digitalidentity_plugin';
+</file>
+
+<file path="src/app/index.ts">
+export default {};
+</file>
+
+<file path="src/types/base58-universal.d.ts">
+declare module 'base58-universal' {
+    export function encode(data: Uint8Array): string;
+    export function decode(str: string): Uint8Array;
+}
+</file>
+
+<file path="src/types/digitalbazaar.d.ts">
+declare module '@digitalbazaar/ed25519-multikey';
+</file>
+
+<file path="src/types/uuid.ts">
+type InputBuffer = ArrayLike<number>;
+
+interface RandomOptions {
+    random?: InputBuffer | undefined;
+}
+interface RngOptions {
+    rng?: (() => InputBuffer) | undefined;
+}
+
+export type V4Options = RandomOptions | RngOptions;
+
+export type v4String = (options?: V4Options) => string;
+</file>
+
+<file path="src/send_tx.ts">
+import { apiClient, cryptography, transactions } from 'klayr-sdk';
+
+const RPC_ENDPOINT = 'ws://3.121.0.0:7887/rpc-ws';
+const passphrase =
+    'virtual gather bean twelve zone muffin glass defy certain before catch verify enjoy air improve quick toast cry major siren must sunny trouble position';
+
+let clientCache: apiClient.APIClient;
+const getClient = async () => {
+    if (!clientCache) {
+        clientCache = await apiClient.createWSClient(RPC_ENDPOINT);
+    }
+    return clientCache;
+};
+
+getClient().then(async apiClient => {
+    const privateKey = await cryptography.ed.getPrivateKeyFromPhraseAndPath(
+        passphrase,
+        "m/44'/134'/0'",
+    );
+    console.log(
+        await apiClient.invoke('identity_getAccount', {
+            address: 'kly4cbm9neguv2c4yx7fqgjp9tadooph4z38wktsy',
+        }),
+    );
+    const tx = await apiClient.transaction.create(
+        {
+            module: 'identity',
+            command: 'setFeature',
+            fee: BigInt(transactions.convertklyToBeddows('1')),
+            params: {
+                features: [
+                    {
+                        label: 'test',
+                        value: 'test',
+                    },
+                ],
+            },
+        },
+        privateKey.toString('hex'),
+    );
+    console.log('Signed transaction object: ', tx);
+
+    const result = await apiClient.transaction.send(tx);
+    console.log('Transaction result: ', result);
+
+    process.exit(0);
+});
+</file>
+
+<file path=".eslintignore">
+docs/
+examples/
+**/*.d.ts
+jest.config.js
+.eslintrc.js
+coverage
+benchmark
+dist
+tmp
+build
+scripts
+config
+</file>
+
+<file path=".lintstagedrc.json">
+{
+    "*.js": ["prettier --write", "eslint"],
+    "*.ts": ["prettier --write", "eslint"],
+    "*.{json,md}": ["prettier --write"]
+}
+</file>
+
+<file path=".nvmrc">
+18
+</file>
+
+<file path=".prettierignore">
+# Files
+Jenkinsfile*
+Makefile
+Dockerfile
+LICENSE
+.DS_Store
+data/
+.idea
+logs/
+
+.gitkeep
+
+# rc files
+.*rc
+
+## ignore files
+.*ignore
+
+# Ignore extensions
+*.png
+*.sql
+
+## jest snapshot
+*.snap
+*.tsbuildinfo
+
+# project specific paths
+dist/
+bin
+tmp/
+
+*.pid
+*.gz
+
+docker/*
+</file>
+
+<file path=".prettierrc">
+{
+	"printWidth": 100,
+	"singleQuote": true,
+	"trailingComma": "all",
+	"useTabs": false,
+	"arrowParens": "avoid",
+	"tabWidth": 4
+}
+</file>
+
+<file path="jest.config.js">
+module.exports = {
+    testMatch: ['<rootDir>/test/**/?(*.)+(spec|test).+(ts|tsx|js)'],
+    setupFilesAfterEnv: ['<rootDir>/test/_setup.js'],
+    transform: {
+        '^.+\\.(ts|tsx)$': [
+            'ts-jest',
+            {
+                tsconfig: '<rootDir>/tsconfig.json',
+            },
+        ],
+    },
+    verbose: false,
+    collectCoverage: false,
+    coverageReporters: ['json'],
+    coverageDirectory: '.coverage',
+    /**
+     * restoreMocks [boolean]
+     *
+     * Default: false
+     *
+     * Automatically restore mock state between every test.
+     * Equivalent to calling jest.restoreAllMocks() between each test.
+     * This will lead to any mocks having their fake implementations removed
+     * and restores their initial implementation.
+     */
+    restoreMocks: true,
+    resetMocks: true,
+
+    /**
+     * resetModules [boolean]
+     *
+     * Default: false
+     *
+     * By default, each test file gets its own independent module registry.
+     * Enabling resetModules goes a step further and resets the module registry before running each individual test.
+     * This is useful to isolate modules for every test so that local module state doesn't conflict between tests.
+     * This can be done programmatically using jest.resetModules().
+     */
+    resetModules: true,
+};
+</file>
+
+<file path="tsconfig.json">
+{
+    "compilerOptions": {
+        "forceConsistentCasingInFileNames": true,
+        "target": "es2019",
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "newLine": "lf",
+        "importHelpers": true,
+        "noFallthroughCasesInSwitch": true,
+        "noImplicitReturns": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "pretty": true,
+        "removeComments": true,
+        "resolveJsonModule": true,
+        "sourceMap": true,
+        "strict": true,
+        "composite": true,
+        "declaration": true,
+        "noImplicitAny": false,
+        "rootDir": "./src",
+        "outDir": "./dist",
+        "skipLibCheck": true
+    },
+    "include": ["./src/**/*.ts", "./src/**/*.json"]
+}
+</file>
+
+<file path="src/app/modules/identity/types.ts">
+import { Types } from 'klayr-sdk';
+
+export interface ModuleConfig {
+    features: object[];
+    verifications: object[];
+}
+
+export type ModuleConfigJSON = Types.JSONObject<ModuleConfig>;
+</file>
+
+<file path="src/app/plugins/digitalidentity/endpoint.ts">
+import { Plugins } from 'klayr-sdk';
+
+export class Endpoint extends Plugins.BasePluginEndpoint {
+    public async test(): Promise<object> {
+        return { test: 'done' };
+    }
+
+    public init() {
+        console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! EEEEEEEEEEEE ');
+    }
+}
+</file>
+
+<file path=".eslintrc.js">
+module.exports = {
+    root: true,
+    parserOptions: {
+        project: './tsconfig.json',
+        tsconfigRootDir: __dirname,
+    },
+    extends: ['klayr-base/ts'],
+    rules: {
+        '@typescript-eslint/member-ordering': 'off',
+        '@typescript-eslint/require-await': 'off',
+        '@typescript-eslint/no-floating-promises': 'off',
+        'no-console': 'off',
+        '@typescript-eslint/no-empty-function': 'off',
+        '@typescript-eslint/restrict-template-expressions': 'off',
+    },
+};
+</file>
+
+<file path=".klayrrc.json">
+{
+    "commander": {
+        "version": "6.1.2"
+    },
+    "template": "klayr-ts"
+}
+</file>
+
+<file path="src/app/modules/badge/commands/claim_badge_command.ts">
+/* eslint-disable class-methods-use-this */
+
+import { Modules, StateMachine } from 'klayr-sdk';
+
+import { claimBadgeSchema } from '../schema';
+
+interface Params {
+    ids: string[];
+}
+
+export class ClaimBadgeCommand extends Modules.BaseCommand {
+    public schema = claimBadgeSchema;
+
+    // eslint-disable-next-line @typescript-eslint/require-await
+    public async verify(
+        _context: StateMachine.CommandVerifyContext<Params>,
+    ): Promise<StateMachine.VerificationResult> {
+        return { status: StateMachine.VerifyStatus.OK };
+    }
+
+    public async execute(_context: StateMachine.CommandExecuteContext<Params>): Promise<void> {}
+}
+</file>
+
+<file path="src/app/modules/badge/stores/account.ts">
+import { Modules } from 'klayr-sdk';
+
+export interface AccountStoreData {
+    credentials: { id: string }[];
+    awards: { id: string; tx: string }[];
+}
+
+export const accountStoreSchema = {
+    $id: '/badge/account',
+    type: 'object',
+    required: ['credentials'],
+    properties: {
+        credentials: {
+            type: 'array',
+            fieldNumber: 1,
+            items: {
+                type: 'object',
+                properties: {
+                    id: {
+                        dataType: 'string',
+                        fieldNumber: 1,
+                    },
+                },
+            },
+        },
+        awards: {
+            type: 'array',
+            fieldNumber: 2,
+            items: {
+                type: 'object',
+                properties: {
+                    id: {
+                        dataType: 'string',
+                        fieldNumber: 1,
+                    },
+                    tx: {
+                        dataType: 'string',
+                        fieldNumber: 2,
+                    },
+                },
+            },
+        },
+    },
+};
+
+export class AccountStore extends Modules.BaseStore<AccountStoreData> {
+    public schema = accountStoreSchema;
+}
+</file>
+
+<file path="src/app/modules/badge/endpoint.ts">
+import { Modules } from 'klayr-sdk';
+
+export class BadgeEndpoint extends Modules.BaseEndpoint {}
+</file>
+
+<file path="src/app/modules/badge/method.ts">
+import { Modules } from 'klayr-sdk';
+
+export class BadgeMethod extends Modules.BaseMethod {}
+</file>
+
+<file path="src/app/modules/badge/schema.ts">
+export const createBadgeSchema = {
+    $id: 'badge/createBadge-params',
+    title: 'Command schema to create a new badge',
+    type: 'object',
+    required: ['id'],
+    properties: {
+        id: { fieldNumber: 1, dataType: 'string' },
+    },
+};
+
+export const archiveBadgeSchema = {
+    $id: 'badge/archiveBadge-params',
+    title: 'Command schema to archive a badge',
+    type: 'object',
+    required: ['ids'],
+    properties: {
+        ids: {
+            fieldNumber: 1,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: { dataType: 'string' },
+        },
+    },
+};
+
+export const issueBadgeSchema = {
+    $id: 'badge/issueBadge-params',
+    title: 'Command schema to issue a badge',
+    type: 'object',
+    required: ['ids', 'recipientAddress'],
+    properties: {
+        recipientAddress: { fieldNumber: 1, dataType: 'string', minLength: 41, maxLength: 42 },
+        ids: {
+            fieldNumber: 2,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: { dataType: 'string' },
+        },
+    },
+};
+
+export const claimBadgeSchema = {
+    $id: 'badge/claimBadge-params',
+    title: 'Command schema to claim a badge',
+    type: 'object',
+    required: ['ids'],
+    properties: {
+        ids: {
+            fieldNumber: 1,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: { dataType: 'string' },
+        },
+    },
+};
+</file>
+
+<file path="src/app/modules/identity/commands/invalidate_feature_command.ts">
+/* eslint-disable class-methods-use-this */
+
+import { Modules, StateMachine, cryptography } from 'klayr-sdk';
+
+import { AccountStore } from '../stores/account';
+import { invalidateFeatureSchema } from '../schema';
+
+interface Params {
+    recipientAddress: string;
+    features: {
+        label: string;
+    }[];
+}
+
+export class InvalidateFeatureCommand extends Modules.BaseCommand {
+    public schema = invalidateFeatureSchema;
+
+    public async verify(
+        _context: StateMachine.CommandVerifyContext<Params>,
+    ): Promise<StateMachine.VerificationResult> {
+        const { params } = _context;
+
+        const uniqueLabels: string[] = [];
+        params.features.forEach(feature => {
+            if (uniqueLabels.includes(feature.label)) {
+                throw new Error('Transaction validation error: Labels mast be unique');
+            } else {
+                uniqueLabels.push(feature.label);
+            }
+        });
+
+        return { status: StateMachine.VerifyStatus.OK };
+    }
+
+    public async execute(_context: StateMachine.CommandExecuteContext<Params>): Promise<void> {
+        const { senderAddress } = _context.transaction;
+        const { recipientAddress, features } = _context.params;
+        const accountSubstore = this.stores.get(AccountStore);
+
+        cryptography.address.validateKlayr32Address(recipientAddress);
+
+        const recipientAccount = await accountSubstore.get(
+            _context,
+            cryptography.address.getAddressFromKlayr32Address(recipientAddress),
+        );
+
+        if (!recipientAccount) {
+            throw new Error(
+                `State modification error: Account does not exist for recipientAddress: ${recipientAddress}`,
+            );
+        }
+
+        features.forEach(feature => {
+            let isValidated = true;
+            recipientAccount.verifications.forEach((verification, index) => {
+                if (
+                    feature.label === verification.label &&
+                    senderAddress.toString('hex') === verification.account
+                ) {
+                    accountSubstore.set(
+                        _context,
+                        cryptography.address.getAddressFromKlayr32Address(recipientAddress),
+                        {
+                            ...recipientAccount,
+                            verifications: [
+                                ...recipientAccount.verifications.slice(0, index),
+                                ...recipientAccount.verifications.slice(index + 1),
+                            ],
+                        },
+                    );
+                    isValidated = false;
+                }
+            });
+
+            if (isValidated) {
+                throw new Error(
+                    `State modification error: Nothing to invalidate for: ${senderAddress.toString(
+                        'hex',
+                    )} with label: ${feature.label}`,
+                );
+            }
+        });
+    }
+}
+</file>
+
+<file path="src/app/modules/identity/method.ts">
+import { Modules, StateMachine } from 'klayr-sdk';
+import { AccountStore } from './stores/account';
+
+export class IdentityMethod extends Modules.BaseMethod {
+    public async getAccountType(
+        methodContext: StateMachine.ImmutableMethodContext,
+        address: Buffer,
+    ) {
+        const accountStore = this.stores.get(AccountStore);
+
+        const account = await accountStore.get(methodContext, address);
+
+        return account.isAuthority;
+    }
+}
+</file>
+
+<file path="src/app/plugins/digitalidentity/controllers/index.ts">
+import * as auth from './auth';
+import * as data from './data';
+import * as s3 from './s3';
+import * as node from './node';
+import * as account from './account';
+import * as events from './events';
+import * as badge from './badge';
+
+export { auth, data, s3, node, account, events, badge };
+</file>
+
+<file path="src/app/plugins/digitalidentity/controllers/node.ts">
+import { Plugins } from 'klayr-sdk';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+
+export const info =
+    (apiClient: Plugins.BasePlugin['apiClient']) =>
+    async (_: FastifyRequest, response: FastifyReply): Promise<void> => {
+        try {
+            const nodeInfo = await apiClient.invoke('system_getNodeInfo');
+            response
+                .code(200)
+                .header('Content-Type', 'application/json; charset=utf-8')
+                .send(nodeInfo);
+        } catch (errorCode) {
+            response
+                .code(500)
+                .header('Content-Type', 'application/json; charset=utf-8')
+                .send({ error: errorCode });
+        }
+    };
+
+export const metrics =
+    (apiClient: Plugins.BasePlugin['apiClient']) =>
+    async (_: FastifyRequest, response: FastifyReply): Promise<void> => {
+        try {
+            const nodeMetrics = await apiClient.invoke('system_getMetricsReport');
+            response
+                .code(200)
+                .header('Content-Type', 'application/json; charset=utf-8')
+                .send(nodeMetrics);
+        } catch (errorCode) {
+            response
+                .code(500)
+                .header('Content-Type', 'application/json; charset=utf-8')
+                .send({ error: errorCode });
+        }
+    };
+
+export const schema =
+    (apiClient: Plugins.BasePlugin['apiClient']) =>
+    async (_: FastifyRequest, response: FastifyReply): Promise<void> => {
+        try {
+            const nodeSchema = await apiClient.invoke('system_getSchema');
+            response
+                .code(200)
+                .header('Content-Type', 'application/json; charset=utf-8')
+                .send(nodeSchema);
+        } catch (errorCode) {
+            response
+                .code(500)
+                .header('Content-Type', 'application/json; charset=utf-8')
+                .send({ error: errorCode });
+        }
+    };
+
+export const metadata =
+    (apiClient: Plugins.BasePlugin['apiClient']) =>
+    async (_: FastifyRequest, response: FastifyReply): Promise<void> => {
+        try {
+            const nodeMetadata = await apiClient.invoke('system_getMetadata');
+            response
+                .code(200)
+                .header('Content-Type', 'application/json; charset=utf-8')
+                .send(nodeMetadata);
+        } catch (errorCode) {
+            response
+                .code(500)
+                .header('Content-Type', 'application/json; charset=utf-8')
+                .send({ error: errorCode });
+        }
+    };
+</file>
+
+<file path="src/app/modules.ts">
+/* eslint-disable @typescript-eslint/no-empty-function */
+import { Application } from 'klayr-sdk';
+import { BadgeModule } from './modules/badge/module';
+import { IdentityModule } from './modules/identity/module';
+
+export const registerModules = (app: Application): void => {
+    console.log('!!!Modules');
+    app.registerModule(new IdentityModule());
+    app.registerModule(new BadgeModule());
+};
+</file>
+
+<file path="src/app/modules/badge/events/newBadgeIssued.ts">
+import { Modules } from 'klayr-sdk';
+
+export interface NewBadgeIssuedEventData {
+    recipientAddress: string;
+    ids: string[];
+}
+
+export const newBadgeIssuedEventSchema = {
+    $id: 'badge/events/newBadgeIssued',
+    type: 'object',
+    required: ['ids', 'recipientAddress'],
+    properties: {
+        recipientAddress: { fieldNumber: 1, dataType: 'string', minLength: 41, maxLength: 42 },
+        ids: {
+            fieldNumber: 2,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: { dataType: 'string' },
+        },
+    },
+};
+
+export class NewBadgeIssuedEvent extends Modules.BaseEvent<NewBadgeIssuedEventData> {
+    public schema = newBadgeIssuedEventSchema;
+}
+</file>
+
+<file path="src/app/modules/identity/commands/validate_feature_command.ts">
+/* eslint-disable class-methods-use-this */
+
+import { Modules, StateMachine, cryptography } from 'klayr-sdk';
+
+import { AccountStore } from '../stores/account';
+
+import { validateFeatureSchema } from '../schema';
+
+interface Params {
+    recipientAddress: string;
+    features: {
+        label: string;
+        value: string;
+    }[];
+}
+
+export class ValidateFeatureCommand extends Modules.BaseCommand {
+    public schema = validateFeatureSchema;
+
+    public async verify(
+        _context: StateMachine.CommandVerifyContext<Params>,
+    ): Promise<StateMachine.VerificationResult> {
+        const { params, transaction } = _context;
+
+        if (transaction.fee < 499000000) {
+            return {
+                status: StateMachine.VerifyStatus.FAIL,
+                error: new Error('Fee is too low. Min fee for validateFeature is 499000000'),
+            };
+        }
+
+        const uniqueLabels: string[] = [];
+        params.features.forEach(feature => {
+            if (uniqueLabels.includes(feature.label)) {
+                throw new Error('Transaction validation error: Labels mast be unique');
+            } else {
+                uniqueLabels.push(feature.label);
+            }
+        });
+
+        return { status: StateMachine.VerifyStatus.OK };
+    }
+
+    public async execute(_context: StateMachine.CommandExecuteContext<Params>): Promise<void> {
+        const { senderAddress, id } = _context.transaction;
+        const { recipientAddress, features } = _context.params;
+        const accountSubstore = this.stores.get(AccountStore);
+
+        cryptography.address.validateKlayr32Address(recipientAddress);
+
+        const recipientAccount = await accountSubstore.get(
+            _context,
+            cryptography.address.getAddressFromKlayr32Address(recipientAddress),
+        );
+
+        if (!recipientAccount) {
+            throw new Error(
+                `State modification error: Account does not exist for recipientAddress: ${recipientAddress}`,
+            );
+        }
+
+        const validatedFeatures: { label: string; account: string; tx: string }[] = [];
+        for (const feature of features) {
+            let doesFeatureExist = false;
+            for (const recipientFeature of recipientAccount.features) {
+                if (
+                    feature.label === recipientFeature.label &&
+                    feature.value === recipientFeature.value
+                ) {
+                    doesFeatureExist = true;
+                    validatedFeatures.push({
+                        label: feature.label,
+                        account: senderAddress.toString('hex'),
+                        tx: id.toString('hex'),
+                    });
+                }
+            }
+            if (!doesFeatureExist) {
+                throw new Error(
+                    `State modification error: Unable to validate a feature with label: ${feature.label}`,
+                );
+            }
+        }
+
+        validatedFeatures.forEach(validatedFeature => {
+            recipientAccount.verifications.forEach(verification => {
+                if (
+                    validatedFeature.label === verification.label &&
+                    senderAddress.toString('hex') === verification.account
+                ) {
+                    throw new Error(
+                        `State modification error: Feature with label: ${validatedFeature.label} already verified`,
+                    );
+                }
+            });
+        });
+
+        accountSubstore.set(
+            _context,
+            cryptography.address.getAddressFromKlayr32Address(recipientAddress),
+            {
+                ...recipientAccount,
+                verifications: [...recipientAccount.verifications, ...validatedFeatures],
+            },
+        );
+    }
+}
+</file>
+
+<file path="src/app/modules/identity/events/newInvalidation.ts">
+import { Modules } from 'klayr-sdk';
+
+export interface NewInvalidationEventData {
+    recipientAddress: string;
+    features: {
+        label: string;
+    }[];
+}
+
+export const newInvalidationEventSchema = {
+    $id: 'identity/events/newInvalidation',
+    type: 'object',
+    required: ['recipientAddress', 'features'],
+    properties: {
+        recipientAddress: { fieldNumber: 1, dataType: 'string', minLength: 41, maxLength: 42 },
+        features: {
+            fieldNumber: 2,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: {
+                type: 'object',
+                required: ['label'],
+                properties: {
+                    label: { fieldNumber: 1, dataType: 'string', maxLength: 16 },
+                },
+            },
+        },
+    },
+};
+
+export class NewInvalidationEvent extends Modules.BaseEvent<NewInvalidationEventData> {
+    public schema = newInvalidationEventSchema;
+}
+</file>
+
+<file path="src/app/modules/identity/events/newValidation.ts">
+import { Modules } from 'klayr-sdk';
+
+export interface NewValidationEventData {
+    recipientAddress: string;
+    features: {
+        label: string;
+        value: string;
+    }[];
+}
+
+export const newValidationEventSchema = {
+    $id: 'identity/events/newValidation',
+    type: 'object',
+    required: ['recipientAddress', 'features'],
+    properties: {
+        recipientAddress: { fieldNumber: 1, dataType: 'string', minLength: 41, maxLength: 42 },
+        features: {
+            fieldNumber: 2,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: {
+                type: 'object',
+                required: ['label', 'value'],
+                properties: {
+                    label: { fieldNumber: 1, dataType: 'string', maxLength: 16 },
+                    value: { fieldNumber: 2, dataType: 'string', maxLength: 32 },
+                },
+            },
+        },
+    },
+};
+
+export class NewValidationEvent extends Modules.BaseEvent<NewValidationEventData> {
+    public schema = newValidationEventSchema;
+}
+</file>
+
+<file path="src/app/modules/badge/commands/archive_badge_command.ts">
+import { Modules, StateMachine } from 'klayr-sdk';
+
+import { archiveBadgeSchema } from '../schema';
+import { IdentityMethod } from '../../identity/method';
+import { AccountStore } from '../stores/account';
+
+interface Params {
+    ids: string[];
+}
+
+export class ArchiveBadgeCommand extends Modules.BaseCommand {
+    public schema = archiveBadgeSchema;
+    // private _method!: IdentityMethod;
+
+    public init(_args: { method: IdentityMethod }) {
+        // this._method = args.method;
+    }
+
+    public async verify(
+        _context: StateMachine.CommandVerifyContext<Params>,
+    ): Promise<StateMachine.VerificationResult> {
+        // const isAuthority = await this._method.getAccountType(
+        //     _context.getMethodContext(),
+        //     _context.transaction.senderAddress,
+        // );
+
+        // if (!isAuthority) {
+        //     return { status: VerifyStatus.FAIL, error: new Error('Sender is not an authority') };
+        // }
+
+        return { status: StateMachine.VerifyStatus.OK };
+    }
+
+    public async execute(_context: StateMachine.CommandExecuteContext<Params>): Promise<void> {
+        const { ids } = _context.params;
+        const { senderAddress } = _context.transaction;
+        const accountStore = this.stores.get(AccountStore);
+        const account = await accountStore.get(_context, senderAddress);
+
+        await accountStore.set(_context, senderAddress, {
+            ...account,
+            credentials: account.credentials.filter(c => !ids.includes(c.id)),
+        });
+    }
+}
+</file>
+
+<file path="src/app/modules/badge/commands/issue_badge_command.ts">
+import { cryptography, Modules, StateMachine } from 'klayr-sdk';
+
+import { issueBadgeSchema } from '../schema';
+import { IdentityMethod } from '../../identity/method';
+import { AccountStore } from '../stores/account';
+
+interface Params {
+    recipientAddress: string;
+    ids: string[];
+}
+
+export class IssueBadgeCommand extends Modules.BaseCommand {
+    public schema = issueBadgeSchema;
+    // private _method!: IdentityMethod;
+
+    public init(_args: { method: IdentityMethod }) {
+        // this._method = args.method;
+    }
+
+    public async verify(
+        _context: StateMachine.CommandVerifyContext<Params>,
+    ): Promise<StateMachine.VerificationResult> {
+        // const isAuthority = await this._method.getAccountType(
+        //     _context.getMethodContext(),
+        //     _context.transaction.senderAddress,
+        // );
+
+        // if (!isAuthority) {
+        //     return { status: VerifyStatus.FAIL, error: new Error('Sender is not an authority') };
+        // }
+
+        return { status: StateMachine.VerifyStatus.OK };
+    }
+
+    public async execute(_context: StateMachine.CommandExecuteContext<Params>): Promise<void> {
+        const { recipientAddress, ids } = _context.params;
+        const { id } = _context.transaction;
+        const accountStore = this.stores.get(AccountStore);
+
+        cryptography.address.validateKlayr32Address(recipientAddress);
+
+        const recipientAccount = await accountStore.get(
+            _context,
+            cryptography.address.getAddressFromKlayr32Address(recipientAddress),
+        );
+
+        if (!recipientAccount) {
+            throw new Error('Recipient account does not exist');
+        }
+
+        await accountStore.set(
+            _context,
+            cryptography.address.getAddressFromKlayr32Address(recipientAddress),
+            {
+                ...recipientAccount,
+                awards: [
+                    ...recipientAccount.awards,
+                    ...ids.map(credentialId => ({ id: credentialId, tx: id.toString('hex') })),
+                ],
+            },
+        );
+    }
+}
+</file>
+
+<file path="src/app/modules/identity/commands/remove_feature_command.ts">
+/* eslint-disable class-methods-use-this */
+
+import { Modules, StateMachine } from 'klayr-sdk';
+
+import { AccountStore } from '../stores/account';
+
+import { removeFeatureSchema } from '../schema';
+
+interface Params {
+    features: {
+        label: string;
+    }[];
+}
+
+export class RemoveFeatureCommand extends Modules.BaseCommand {
+    public schema = removeFeatureSchema;
+
+    // eslint-disable-next-line @typescript-eslint/require-await
+    public async verify(
+        _context: StateMachine.CommandVerifyContext<Params>,
+    ): Promise<StateMachine.VerificationResult> {
+        const { params } = _context;
+
+        const uniqueLabels: string[] = [];
+        params.features.forEach(feature => {
+            if (uniqueLabels.includes(feature.label)) {
+                throw new Error('Transaction validation error: Labels mast be unique');
+            } else {
+                uniqueLabels.push(feature.label);
+            }
+        });
+
+        return { status: StateMachine.VerifyStatus.OK };
+    }
+
+    public async execute(_context: StateMachine.CommandExecuteContext<Params>): Promise<void> {
+        const { features } = _context.params;
+        const { senderAddress } = _context.transaction;
+        const accountSubstore = this.stores.get(AccountStore);
+
+        for (const feature of features) {
+            let doesFeatureExist = false;
+
+            const account = await accountSubstore.get(_context, senderAddress);
+            for (const accountFeature of account.features) {
+                if (feature.label === accountFeature.label) {
+                    doesFeatureExist = true;
+                    break;
+                }
+            }
+
+            if (!doesFeatureExist) {
+                throw new Error(
+                    'State modification error: Unable to delete a feature that does not exist',
+                );
+            }
+
+            await accountSubstore.set(_context, senderAddress, {
+                ...account,
+                features: account.features.filter(
+                    accountFeature => accountFeature.label !== feature.label,
+                ),
+                verifications: account.verifications.filter(
+                    verification => verification.label !== feature.label,
+                ),
+            });
+        }
+    }
+}
+</file>
+
+<file path="src/app/plugins/digitalidentity/controllers/auth.ts">
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import {
+    generateRegistrationOptions,
+    verifyRegistrationResponse,
+    generateAuthenticationOptions,
+    verifyAuthenticationResponse,
+    type VerifiedRegistrationResponse,
+    type VerifiedAuthenticationResponse,
+} from '@simplewebauthn/server';
+
+import type {
+    PublicKeyCredentialType,
+    AuthenticationResponseJSON,
+    RegistrationResponseJSON,
+} from '@simplewebauthn/types';
+
+// eslint-disable-next-line import/no-unresolved
+import { isoUint8Array, isoBase64URL } from '@simplewebauthn/server/helpers';
+
+import {
+    getUserByPublicKey,
+    getUserWithDevicesByPublicKey,
+    getAuthenticatorDeviceByCredentialID,
+    createUser,
+    createAuthenticatorDevice,
+    updateAuthenticatorDevice,
+    saveUserChallenge,
+    getUserChallenge,
+} from '../database';
+
+import { toPublicKeyObject, verifyJWT } from '../../../../lib/utils';
+
+const rpName = 'WebAuthn Server';
+const rpID = 'my.idntty.io';
+// const rpID = 'localhost';
+// const rpID = 'idntty-app.vercel.app';
+const origin = `https://${rpID}`;
+// const origin = `http://${rpID}:3000`;
+
+export const register =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: {
+                publicKey: string;
+            };
+        }>,
+        res: FastifyReply,
+    ): Promise<object> => {
+        const { publicKey } = req.query;
+
+        const dbUser = await getUserWithDevicesByPublicKey(publicKey);
+
+        const excludeCredentials = dbUser
+            ? dbUser.devices.map(device => ({
+                  id: device.credential_id,
+                  type: 'public-key' as PublicKeyCredentialType,
+                  transports: device.transports.map(transport =>
+                      transport.transport === 'smart_card' ? 'smart-card' : transport.transport,
+                  ),
+              }))
+            : undefined;
+
+        const options = await generateRegistrationOptions({
+            rpName,
+            rpID,
+            userID: publicKey,
+            userName: publicKey,
+            timeout: 60000,
+            attestationType: 'none',
+            excludeCredentials,
+            authenticatorSelection: {
+                residentKey: 'discouraged',
+            },
+            supportedAlgorithmIDs: [-7, -257],
+        });
+        console.log('Generated registration options:', options);
+
+        await saveUserChallenge(publicKey, options.challenge);
+
+        return res.send(options);
+    };
+
+export const registerVerify =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Body: {
+                publicKey: string;
+                isAuthority: boolean;
+                registrationResponse: RegistrationResponseJSON;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const expectedChallenge = await getUserChallenge(req.body.publicKey);
+
+        if (!expectedChallenge) {
+            return res.status(400).send({ error: 'Challenge not found or expired.' });
+        }
+
+        let verification: VerifiedRegistrationResponse;
+        let webAuthnPublicKey: Uint8Array = new Uint8Array();
+        try {
+            verification = await verifyRegistrationResponse({
+                response: req.body.registrationResponse,
+                expectedChallenge: `${expectedChallenge}`,
+                expectedOrigin: origin,
+                expectedRPID: rpID,
+                requireUserVerification: true,
+            });
+
+            const { verified, registrationInfo } = verification;
+
+            if (verified && registrationInfo) {
+                const { credentialPublicKey, credentialID, counter } = registrationInfo;
+
+                if (!req.body.registrationResponse.response.transports) {
+                    return res.status(400).send({ error: 'Transports not found' });
+                }
+
+                let user = await getUserByPublicKey(req.body.publicKey);
+
+                if (!user) {
+                    user = await createUser({
+                        publicKey: req.body.publicKey,
+                        username: req.body.publicKey,
+                        isAuthority: req.body.isAuthority,
+                        credentialID,
+                        credentialPublicKey,
+                        counter,
+                        transports: req.body.registrationResponse.response.transports,
+                        layout: {},
+                    });
+                } else {
+                    await createAuthenticatorDevice({
+                        publicKey: req.body.publicKey,
+                        credentialID,
+                        credentialPublicKey,
+                        counter,
+                        transports: req.body.registrationResponse.response.transports,
+                    });
+                }
+
+                webAuthnPublicKey = credentialPublicKey;
+            }
+        } catch (error) {
+            const _error = error as Error;
+            console.error(error);
+            return res.status(400).send({ error: _error.message });
+        }
+
+        await saveUserChallenge(req.body.publicKey, null);
+
+        const response = {
+            verified: verification.verified,
+            webAuthnPublicKey: isoUint8Array.toHex(webAuthnPublicKey),
+        };
+        console.log('Sending verification status and WebAuthn public key:', response);
+        return res.send(response);
+    };
+
+export const login =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: { publicKey: string };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { publicKey } = req.query;
+
+        const dbUser = await getUserWithDevicesByPublicKey(publicKey);
+
+        if (!dbUser) {
+            return res.status(400).send({ error: 'User not found' });
+        }
+
+        const options = await generateAuthenticationOptions({
+            timeout: 60000,
+            allowCredentials: dbUser.devices.map(device => ({
+                id: device.credential_id,
+                type: 'public-key',
+                transports: device.transports.map(transport =>
+                    transport.transport === 'smart_card' ? 'smart-card' : transport.transport,
+                ),
+            })),
+            userVerification: 'required',
+            rpID,
+        });
+        console.log('Generated authentication options:', options);
+
+        await saveUserChallenge(publicKey, options.challenge);
+
+        return res.send(options);
+    };
+
+export const loginVerify =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Body: { publicKey: string; authenticationResponse: AuthenticationResponseJSON };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const expectedChallenge = await getUserChallenge(req.body.publicKey);
+
+        if (!expectedChallenge) {
+            return res.status(400).send({ error: 'Challenge not found or expired.' });
+        }
+
+        const bodyCredentialID = isoBase64URL.toBuffer(req.body.authenticationResponse.rawId);
+
+        const dbAuthenticator = await getAuthenticatorDeviceByCredentialID(bodyCredentialID);
+
+        if (!dbAuthenticator) {
+            return res.status(400).send({ error: 'Device not found' });
+        }
+
+        let verification: VerifiedAuthenticationResponse;
+        try {
+            verification = await verifyAuthenticationResponse({
+                response: req.body.authenticationResponse,
+                expectedChallenge: `${expectedChallenge}`,
+                expectedOrigin: origin,
+                expectedRPID: rpID,
+                authenticator: {
+                    credentialPublicKey: dbAuthenticator.credential_public_key,
+                    credentialID: dbAuthenticator.credential_id,
+                    counter: dbAuthenticator.counter,
+                    transports: dbAuthenticator.transports.map(transport =>
+                        transport.transport === 'smart_card' ? 'smart-card' : transport.transport,
+                    ),
+                },
+                requireUserVerification: true,
+            });
+        } catch (error) {
+            const _error = error as Error;
+            console.error(error);
+            return res.status(400).send({ error: _error.message });
+        }
+
+        const { verified, authenticationInfo } = verification;
+        if (verified) {
+            await updateAuthenticatorDevice({
+                credentialID: dbAuthenticator.credential_id,
+                counter: authenticationInfo.newCounter,
+            });
+        }
+
+        await saveUserChallenge(req.body.publicKey, null);
+
+        const response = {
+            verified,
+            webAuthnPublicKey: isoUint8Array.toHex(dbAuthenticator.credential_public_key),
+        };
+        return res.send(response);
+    };
+
+// FIXME: The types don't work here, have to check manually
+type RequestWithPublicKey = (
+    | { Body: { publicKey: string } }
+    | { Querystring: { publicKey: string } }
+) &
+    Record<string, unknown>;
+export const jwtVerificationPreHandler =
+    () => async (req: FastifyRequest<RequestWithPublicKey>, res: FastifyReply) => {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            res.status(401).send({ error: 'Unauthorized' });
+            return;
+        }
+
+        let rawPublicKey: string | undefined;
+        if (req.query && typeof req.query === 'object' && 'forPublicKey' in req.query) {
+            rawPublicKey = (req.query as { forPublicKey: string }).forPublicKey;
+        } else if (req.body && typeof req.body === 'object' && 'publicKey' in req.body) {
+            rawPublicKey = (req.body as { publicKey: string }).publicKey;
+        } else if (req.query && typeof req.query === 'object' && 'publicKey' in req.query) {
+            rawPublicKey = (req.query as { publicKey: string }).publicKey;
+        }
+
+        if (!rawPublicKey) {
+            res.status(400).send({ error: 'publicKey not provided' });
+            return;
+        }
+
+        const jwt = authHeader.split(' ')[1];
+        const publicKey = await toPublicKeyObject(Buffer.from(rawPublicKey, 'hex'));
+
+        try {
+            const verified = await verifyJWT(jwt, publicKey, rawPublicKey);
+            console.log('JWT verification:', verified);
+            return;
+        } catch (err) {
+            res.status(401).send({ error: 'Invalid token' });
+        }
+    };
+</file>
+
+<file path="src/app/plugins/digitalidentity/controllers/data.ts">
+import type { FastifyRequest, FastifyReply } from 'fastify';
+
+import {
+    getUserLayout,
+    updateUserLayout,
+    getPrivateUserDataEntry,
+    getPublicUserDataEntry,
+    getSharedUserDataEntry,
+    saveUserDataEntry,
+    getIsAuthority,
+    getBadgeCollections,
+    addBadgeCollection,
+    getBadgeTags,
+    addBadgeTags,
+} from '../database';
+
+export interface DataEntry {
+    uuid: string;
+    value: string;
+    nonce: string;
+}
+export const getLayout =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: { address: string };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { address } = req.query;
+
+        const layout = await getUserLayout(address);
+
+        return res.send(layout);
+    };
+
+export const updateLayout =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Body: {
+                publicKey: string;
+                address: string;
+                layout: object;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { address, layout } = req.body;
+
+        await updateUserLayout({ address, layout });
+
+        return res.send({ success: true });
+    };
+
+export const getPrivateData =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: { publicKey: string };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { publicKey } = req.query;
+
+        const data = await getPrivateUserDataEntry(publicKey);
+
+        return res.send(data);
+    };
+
+export const getPublicData =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: { address: string };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { address } = req.query;
+
+        const data = await getPublicUserDataEntry(address);
+
+        return res.send(data);
+    };
+
+export const getSharedData =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: { publicKey: string; address: string; forPublicKey: string };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { address, forPublicKey } = req.query;
+
+        const data = await getSharedUserDataEntry(address, forPublicKey);
+
+        return res.send(data);
+    };
+
+export const saveData =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Body: {
+                publicKey: string;
+                domains: string[];
+                data: DataEntry[];
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { publicKey, domains, data } = req.body;
+
+        await saveUserDataEntry({ publicKey, domains, data });
+
+        return res.send({ success: true });
+    };
+
+export const getUserIdentity =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: { address: string };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { address } = req.query;
+
+        const isAuthority = await getIsAuthority(address);
+
+        return res.send({ isAuthority });
+    };
+
+export const getCollections =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: { address: string };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { address } = req.query;
+
+        const collections = await getBadgeCollections(address);
+
+        return res.send(collections);
+    };
+
+export const addCollection =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Body: {
+                publicKey: string;
+                collection: string;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { publicKey, collection } = req.body;
+
+        await addBadgeCollection(publicKey, collection);
+
+        return res.send({ success: true });
+    };
+
+export const getTags =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: { publicKey: string };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { publicKey } = req.query;
+
+        const tags = await getBadgeTags(publicKey);
+
+        return res.send(tags);
+    };
+
+export const addTags =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Body: {
+                publicKey: string;
+                tags: string[];
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { publicKey, tags } = req.body;
+
+        await addBadgeTags(publicKey, tags);
+
+        return res.send({ success: true });
+    };
+</file>
+
+<file path="src/app/plugins.ts">
+/* eslint-disable @typescript-eslint/no-empty-function */
+import { Application } from 'klayr-sdk';
+import { DashboardPlugin } from '@klayr/dashboard-plugin';
+
+import { DigitalidentityPlugin } from './plugins/digitalidentity';
+import { EventListenerPlugin } from './plugins/event_listener/event_listener_plugin';
+
+export const registerPlugins = (app: Application): void => {
+    console.log('!!!plugins');
+    app.registerPlugin(new DashboardPlugin());
+
+    app.registerPlugin(new DigitalidentityPlugin());
+    app.registerPlugin(new EventListenerPlugin());
+};
+</file>
+
+<file path="src/app/modules/badge/module.ts">
+/* eslint-disable class-methods-use-this */
+/* eslint-disable @typescript-eslint/member-ordering */
+
+import { Modules } from 'klayr-sdk';
+import { ArchiveBadgeCommand } from './commands/archive_badge_command';
+import { ClaimBadgeCommand } from './commands/claim_badge_command';
+import { CreateBadgeCommand } from './commands/create_badge_command';
+import { IssueBadgeCommand } from './commands/issue_badge_command';
+import { BadgeEndpoint } from './endpoint';
+import { BadgeMethod } from './method';
+import { NewBadgeIssuedEvent } from './events/newBadgeIssued';
+import { AccountStore } from './stores/account';
+
+import { IdentityMethod } from '../identity/method';
+
+export class BadgeModule extends Modules.BaseModule {
+    private _identityMethod!: IdentityMethod;
+    private readonly _createBadgeCommand = new CreateBadgeCommand(this.stores, this.events);
+    private readonly _archiveBadgeCommand = new ArchiveBadgeCommand(this.stores, this.events);
+    private readonly _issueBadgeCommand = new IssueBadgeCommand(this.stores, this.events);
+
+    public endpoint = new BadgeEndpoint(this.stores, this.offchainStores);
+    public method = new BadgeMethod(this.stores, this.events);
+    public commands = [
+        this._createBadgeCommand,
+        this._archiveBadgeCommand,
+        this._issueBadgeCommand,
+        new ClaimBadgeCommand(this.stores, this.events),
+    ];
+
+    public addDependencies(identityMethod: IdentityMethod) {
+        this._identityMethod = identityMethod;
+    }
+
+    public constructor() {
+        super();
+        this.stores.register(AccountStore, new AccountStore(this.name, 0));
+
+        this.events.register(NewBadgeIssuedEvent, new NewBadgeIssuedEvent(this.name));
+    }
+
+    public metadata(): Modules.ModuleMetadata {
+        return {
+            ...this.baseMetadata(),
+            endpoints: [],
+            assets: [],
+        };
+    }
+
+    // Lifecycle hooks
+    public async init(_args: Modules.ModuleInitArgs): Promise<void> {
+        // initialize this module when starting a node
+        this._createBadgeCommand.init({ method: this._identityMethod });
+        this._archiveBadgeCommand.init({ method: this._identityMethod });
+        this._issueBadgeCommand.init({ method: this._identityMethod });
+    }
+
+    // public async insertAssets(_context: InsertAssetContext) {
+    // 	// initialize block generation, add asset
+    // }
+
+    // public async verifyAssets(_context: BlockVerifyContext): Promise<void> {
+    // 	// verify block
+    // }
+
+    // Lifecycle hooks
+    // public async verifyTransaction(_context: TransactionVerifyContext): Promise<VerificationResult> {
+    // verify transaction will be called multiple times in the transaction pool
+    // return { status: VerifyStatus.OK };
+    // }
+
+    // public async beforeCommandExecute(_context: TransactionExecuteContext): Promise<void> {
+    // }
+
+    // public async afterCommandExecute(_context: TransactionExecuteContext): Promise<void> {
+
+    // }
+    // public async initGenesisState(_context: GenesisBlockExecuteContext): Promise<void> {
+
+    // }
+
+    // public async finalizeGenesisState(_context: GenesisBlockExecuteContext): Promise<void> {
+
+    // }
+
+    // public async beforeTransactionsExecute(_context: BlockExecuteContext): Promise<void> {
+
+    // }
+
+    // public async afterTransactionsExecute(_context: BlockAfterExecuteContext): Promise<void> {
+
+    // }
+}
+</file>
+
+<file path="src/app/modules/identity/commands/set_account_type_command.ts">
+import { Modules, StateMachine } from 'klayr-sdk';
+import { inspect } from 'util';
+
+import { AccountStore } from '../stores/account';
+import { setAccountTypeSchema } from '../schema';
+
+interface Params {
+    isAuthority: boolean;
+}
+
+export class SetAccountTypeCommand extends Modules.BaseCommand {
+    public schema = setAccountTypeSchema;
+
+    public async verify(
+        _context: StateMachine.CommandVerifyContext<Params>,
+    ): Promise<StateMachine.VerificationResult> {
+        return { status: StateMachine.VerifyStatus.OK };
+    }
+
+    public async execute(_context: StateMachine.CommandExecuteContext<Params>): Promise<void> {
+        const { isAuthority } = _context.params;
+        const { senderAddress } = _context.transaction;
+        const accountSubstore = this.stores.get(AccountStore);
+
+        const account = await accountSubstore.get(_context, senderAddress);
+
+        accountSubstore.set(_context, senderAddress, {
+            ...account,
+            isAuthority,
+        });
+
+        console.log(
+            inspect(await accountSubstore.get(_context, senderAddress), {
+                depth: null,
+                colors: true,
+            }),
+        );
+    }
+}
+</file>
+
+<file path="src/app/modules/identity/endpoint.ts">
+import { Modules, Types, cryptography } from 'klayr-sdk';
+import { AccountStore, AccountStoreData } from './stores/account';
+
+export class IdentityEndpoint extends Modules.BaseEndpoint {
+    public async getAccount(ctx: Types.ModuleEndpointContext): Promise<AccountStoreData> {
+        const accountSubstore = this.stores.get(AccountStore);
+        const { address } = ctx.params;
+
+        if (typeof address !== 'string') {
+            throw new Error('Parameter address must be a string');
+        }
+
+        cryptography.address.validateKlayr32Address(address);
+
+        const account = await accountSubstore.get(
+            ctx,
+            cryptography.address.getAddressFromKlayr32Address(address),
+        );
+
+        return account;
+    }
+
+    public async getAllAccounts(ctx: Types.ModuleEndpointContext): Promise<
+        {
+            key: Buffer;
+            value: AccountStoreData;
+        }[]
+    > {
+        const accountSubstore = this.stores.get(AccountStore);
+
+        console.log('Got accountSubstore: ', accountSubstore);
+
+        const options = {
+            limit: 10,
+            gte: Buffer.from(new Uint8Array([0])),
+            lte: Buffer.from(new Uint8Array(new Array(256).fill(255))),
+        };
+
+        console.log('Options: ', options);
+
+        const accounts = await accountSubstore.iterate(ctx, options);
+
+        console.log('Got accounts: ', accounts);
+
+        return accounts;
+    }
+}
+</file>
+
+<file path="src/app/plugins/digitalidentity/controllers/account.ts">
+import { Plugins } from 'klayr-sdk';
+import type { FastifyRequest, FastifyReply } from 'fastify';
+
+export const get =
+    (apiClient: Plugins.BasePlugin['apiClient']) =>
+    async (
+        req: FastifyRequest<{ Querystring: { address: string } }>,
+        res: FastifyReply,
+    ): Promise<void> => {
+        const { address } = req.query;
+
+        try {
+            const account = await apiClient.invoke('identity_getAccount', { address });
+            res.send(account);
+        } catch (error) {
+            res.status(500).send({ error });
+        }
+    };
+
+export const getBalance =
+    (apiClient: Plugins.BasePlugin['apiClient']) =>
+    async (
+        req: FastifyRequest<{ Querystring: { address: string } }>,
+        res: FastifyReply,
+    ): Promise<void> => {
+        const { address } = req.query;
+
+        try {
+            const balances = await apiClient.invoke('token_getBalance', {
+                address,
+                tokenID: '0000000000000000',
+            });
+            res.send(balances);
+        } catch (error) {
+            res.status(500).send({ error });
+        }
+    };
+</file>
+
+<file path="src/app/app.ts">
+import { Application, Types } from 'klayr-sdk';
+// import { registerModules } from './modules';
+import { registerPlugins } from './plugins';
+import { BadgeModule } from './modules/badge/module';
+import { IdentityModule } from './modules/identity/module';
+
+export const getApplication = (config: Types.PartialApplicationConfig): Application => {
+    const { app } = Application.defaultApplication(config);
+    const badgeModule = new BadgeModule();
+    const identityModule = new IdentityModule();
+
+    app.registerModule(badgeModule);
+    app.registerModule(identityModule);
+    badgeModule.addDependencies(identityModule.method);
+
+    // registerModules(app);
+    if (process.env.PLUGINS === '1') {
+        registerPlugins(app);
+    }
+
+    console.log('!!!! app');
+
+    return app;
+};
+</file>
+
+<file path="src/app/modules/identity/stores/account.ts">
+import { Modules } from 'klayr-sdk';
+
+export interface AccountStoreData {
+    features: {
+        label: string;
+        value: string;
+    }[];
+    verifications: {
+        label: string;
+        account: string;
+        tx: string;
+    }[];
+    isAuthority: boolean;
+}
+
+export const accountStoreSchema = {
+    $id: '/identity/account',
+    type: 'object',
+    required: ['features', 'isAuthority'],
+    properties: {
+        features: {
+            fieldNumber: 1,
+            type: 'array',
+            items: {
+                type: 'object',
+                required: ['label', 'value'],
+                properties: {
+                    label: { fieldNumber: 1, dataType: 'string' },
+                    value: { fieldNumber: 2, dataType: 'string' },
+                },
+            },
+        },
+        verifications: {
+            fieldNumber: 2,
+            type: 'array',
+            items: {
+                type: 'object',
+                required: ['label', 'account', 'tx'],
+                properties: {
+                    label: { fieldNumber: 1, dataType: 'string' },
+                    account: { fieldNumber: 2, dataType: 'string' },
+                    tx: { fieldNumber: 3, dataType: 'string' },
+                },
+            },
+        },
+        isAuthority: { fieldNumber: 3, dataType: 'boolean' },
+    },
+};
+
+export class AccountStore extends Modules.BaseStore<AccountStoreData> {
+    public schema = accountStoreSchema;
+}
+</file>
+
+<file path="src/app/plugins/digitalidentity/controllers/s3.ts">
+import type { FastifyRequest, FastifyReply } from 'fastify';
+
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import {
+    S3Client,
+    PutObjectCommand,
+    HeadObjectCommand,
+    DeleteObjectCommand,
+} from '@aws-sdk/client-s3';
+
+import { saveBadgeImage, getBadgeImagesByAddress, deleteBadgeByFileKey } from '../database';
+import { uuidv4 } from '../../../../lib/utils';
+
+const s3Client = new S3Client({ region: 'eu-west-1' });
+
+export const getUploadUrl =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Body: {
+                publicKey: string;
+                fileName: string;
+                contentType: string;
+                folder?: string;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { publicKey, fileName, contentType, folder = '/' } = req.body;
+
+        // List of allowed folders (plus root "/")
+        const allowedFolders = ['/', 'images', 'badges'];
+
+        if (!allowedFolders.includes(folder)) {
+            return res.status(400).send({ error: 'Invalid folder. Upload not allowed.' });
+        }
+
+        // Determine the full path to check for existing file
+        const checkPath = folder === '/' ? fileName : `${folder}/${fileName}`;
+
+        let newFileName = '';
+        try {
+            await s3Client.send(
+                new HeadObjectCommand({
+                    Bucket: 'io.idntty.cdn',
+                    Key: checkPath,
+                }),
+            );
+            newFileName = fileName;
+        } catch (error) {
+            newFileName = uuidv4();
+        }
+
+        // Create the full key with folder path (handle root folder case)
+        const fullKey = folder === '/' ? newFileName : `${folder}/${newFileName}`;
+
+        const command = new PutObjectCommand({
+            Bucket: 'io.idntty.cdn',
+            Key: fullKey,
+            ContentType: contentType,
+            // Expires: new Date(),
+        });
+
+        try {
+            const url = await getSignedUrl(s3Client, command, {
+                expiresIn: 3600,
+            });
+
+            // Only save badge image references if this is a badge upload
+            if (folder === 'badges') {
+                await saveBadgeImage({ publicKey, fileKey: newFileName });
+            }
+
+            // Return the full path including folder in the response
+            // This is the key change - return the full path so frontend doesn't need to add folder
+            return res.send({
+                url,
+                newFileName: fullKey, // Return the full path including folder
+                fileName: newFileName, // Also return just the filename for backward compatibility
+            });
+        } catch (error) {
+            console.error(error);
+            return res.status(500).send({ error: `Error generating a presigned URL: ${error}` });
+        }
+    };
+
+export const getUploadedImages =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: { address: string };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { address } = req.query;
+
+        if (!address) {
+            return res.status(400).send({ error: 'Address not found' });
+        }
+
+        try {
+            const badges = await getBadgeImagesByAddress(address);
+
+            return res.send(badges.map(badge => badge.fileKey));
+        } catch (error) {
+            console.error(error);
+            return res.status(500).send({ error: `Error getting images: ${error}` });
+        }
+    };
+
+export const removeUploadedImage =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Body: {
+                publicKey: string;
+                fileName: string;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { fileName, publicKey } = req.body;
+
+        if (!fileName) {
+            return res.status(400).send({ error: 'File name not provided' });
+        }
+
+        try {
+            // Delete from database using publicKey
+            const result = await deleteBadgeByFileKey(fileName, publicKey);
+
+            // Delete from S3
+            const fullKey = `badges/${fileName}`;
+            await s3Client.send(
+                new DeleteObjectCommand({
+                    Bucket: 'io.idntty.cdn',
+                    Key: fullKey,
+                }),
+            );
+
+            return res.send({
+                success: true,
+                message: 'Badge removed successfully',
+                deletedCount: result.count,
+            });
+        } catch (error) {
+            console.error(error);
+            return res.status(500).send({ error: `Error removing image: ${error}` });
+        }
+    };
+</file>
+
+<file path=".gitignore">
+# General
+~
+.DS_Store
+.project
+__MACOSX/
+*.swp
+*.swo
+ssl/
+tmp/
+node-x64/
+.env
+
+# Build revision file generated while building a release
+REVISION
+npm-shrinkwrap.json
+
+# Dependency directories
+tsconfig.tsbuildinfo
+node_modules/
+
+# Docs
+docs/jsdoc/
+
+# Logs
+logs/*
+logs.log
+npm-debug.log
+tmux-client-*.log
+stacktrace*
+
+# IDE directories
+.vscode/
+.idea/
+Session.vim
+
+# Config files
+sftp-config.json
+.secrets
+tsconfig.repl.json
+
+# Coverage directory used by tools like istanbul
+.coverage/
+
+# Local config file useful for development
+config.local.json
+
+# Build Directory
+dist
+
+# Klayr data
+config/default/dev-validators.json
+config/default/dev-validators-eu.json
+config/default/dev-validators-ap.json
+config/default/passphrase.json
+config/default/config.json
+
+# Specstory
+.specstory/*
+</file>
+
+<file path="package.json">
+{
+    "name": "idntty",
+    "version": "0.1.0",
+    "description": "idntty.io",
+    "author": "idntty",
+    "license": "MIT",
+    "keywords": [
+        "blockchain",
+        "klayr",
+        "nodejs",
+        "javascript",
+        "typescript"
+    ],
+    "homepage": "",
+    "repository": {},
+    "engines": {
+        "node": ">=18.12.0 <=18",
+        "npm": ">=8.1.0"
+    },
+    "main": "dist/index.js",
+    "scripts": {
+        "lint": "eslint --ext .ts .",
+        "lint:fix": "eslint --fix --ext .js,.ts .",
+        "format": "prettier --write '**/*'",
+        "prepack": "oclif manifest && oclif readme --multi --dir=docs/commands && npm shrinkwrap && npm prune --production && npm shrinkwrap",
+        "prebuild": "if test -d dist; then rm -r dist; fi; rm -f tsconfig.tsbuildinfo; rm -f npm-shrinkwrap.json",
+        "start": "echo Run \"./bin/run start\" to start the app",
+        "build": "tsc",
+        "test": "jest --passWithNoTests",
+        "test:coverage": "jest --passWithNoTests --coverage=true --coverage-reporters=text",
+        "test:ci": "jest --passWithNoTests --coverage=true --coverage-reporters=json",
+        "version": "oclif readme --multi --dir=docs/commands && git add README.md docs",
+        "prepublishOnly": "npm ci && npm run lint && npm run build"
+    },
+    "bin": {
+        "idntty": "./bin/run"
+    },
+    "klayr": {
+        "addressPrefix": "kly"
+    },
+    "oclif": {
+        "bin": "idntty",
+        "commands": "./dist/commands",
+        "plugins": [
+            "@oclif/plugin-help",
+            "@oclif/plugin-autocomplete",
+            "@oclif/plugin-version"
+        ],
+        "additionalHelpFlags": [
+            "-h"
+        ],
+        "additionalVersionFlags": [
+            "-v"
+        ],
+        "topicSeparator": " ",
+        "topics": {
+            "block": {
+                "description": "Commands relating to idntty blocks."
+            },
+            "blockchain": {
+                "description": "Commands relating to idntty blockchain data."
+            },
+            "console": {
+                "description": "idntty interactive REPL session to run commands."
+            },
+            "config": {
+                "description": "Commands relating to idntty node configuration."
+            },
+            "keys": {
+                "description": "Commands relating to idntty key generation."
+            },
+            "generator": {
+                "description": "Commands relating to idntty block generator."
+            },
+            "hash-onion": {
+                "description": "Create hash onions to be used by the forger."
+            },
+            "system": {
+                "description": "Commands relating to idntty node."
+            },
+            "passphrase": {
+                "description": "Commands relating to idntty passphrases."
+            },
+            "endpoint": {
+                "description": "Commands relating to idntty endpoint."
+            },
+            "sdk": {
+                "description": "Commands relating to Lisk SDK development."
+            },
+            "transaction": {
+                "description": "Commands relating to idntty transactions."
+            }
+        }
+    },
+    "files": [
+        "/bin",
+        "/npm-shrinkwrap.json",
+        "/oclif.manifest.json",
+        "/dist",
+        "/config",
+        "/docs"
+    ],
+    "husky": {
+        "hooks": {
+            "pre-commit": "lint-staged"
+        }
+    },
+    "dependencies": {
+        "@aws-sdk/client-s3": "^3.554.0",
+        "@aws-sdk/s3-request-presigner": "^3.554.0",
+        "@digitalbazaar/data-integrity": "^2.5.0",
+        "@digitalbazaar/ed25519-multikey": "^1.3.1",
+        "@digitalbazaar/eddsa-rdfc-2022-cryptosuite": "^1.2.0",
+        "@digitalbazaar/security-document-loader": "^3.0.1",
+        "@digitalcredentials/jsonld-signatures": "^12.0.1",
+        "@digitalcredentials/open-badges-context": "^2.1.0",
+        "@digitalcredentials/security-document-loader": "^7.0.0",
+        "@fastify/cors": "^9.0.1",
+        "@klayr/chain-connector-plugin": "0.2.2",
+        "@klayr/dashboard-plugin": "^0.4.2",
+        "@klayr/faucet-plugin": "0.4.2",
+        "@klayr/generator-plugin": "0.5.2",
+        "@klayr/monitor-plugin": "0.5.2",
+        "@klayr/report-misbehavior-plugin": "0.5.2",
+        "@oclif/core": "1.20.4",
+        "@oclif/plugin-autocomplete": "1.3.6",
+        "@oclif/plugin-help": "5.1.19",
+        "@oclif/plugin-version": "1.1.3",
+        "@prisma/client": "^5.17.0",
+        "@simplewebauthn/server": "^9.0.3",
+        "apify-client": "^2.10.0",
+        "axios": "0.21.2",
+        "base58-universal": "^2.0.0",
+        "date-fns": "^3.6.0",
+        "fastify": "^4.26.2",
+        "fs-extra": "11.1.0",
+        "inquirer": "8.2.5",
+        "jose": "^5.3.0",
+        "jsonld-signatures": "^11.5.0",
+        "klayr-commander": "6.1.2",
+        "klayr-sdk": "6.1.3",
+        "libsodium-wrappers-sumo": "^0.7.15",
+        "multibase": "^4.0.6",
+        "pg": "^8.11.3",
+        "postgres": "^3.4.4",
+        "tar": "6.1.11",
+        "tslib": "2.4.1",
+        "uuid": "^9.0.1"
+    },
+    "devDependencies": {
+        "@klayr/api-client": "^6.1.2",
+        "@oclif/test": "2.2.12",
+        "@simplewebauthn/types": "^10.0.0",
+        "@types/fs-extra": "9.0.13",
+        "@types/jest": "29.2.3",
+        "@types/jest-when": "3.5.2",
+        "@types/libsodium-wrappers-sumo": "^0.7.8",
+        "@types/node": "18.15.3",
+        "@types/tar": "6.1.3",
+        "@typescript-eslint/eslint-plugin": "5.44.0",
+        "@typescript-eslint/parser": "5.44.0",
+        "eslint": "8.28.0",
+        "eslint-config-klayr-base": "2.0.1",
+        "eslint-plugin-import": "2.26.0",
+        "eslint-plugin-jest": "27.1.6",
+        "globby": "10.0.2",
+        "husky": "4.2.5",
+        "jest": "29.3.1",
+        "jest-extended": "3.2.0",
+        "jest-when": "3.5.2",
+        "lint-staged": "10.2.11",
+        "oclif": "3.2.31",
+        "prettier": "2.8.0",
+        "prisma": "^5.17.0",
+        "ts-jest": "29.0.3",
+        "ts-node": "10.9.1",
+        "typescript": "5.0.2"
+    }
+}
+</file>
+
+<file path="src/app/modules/badge/commands/create_badge_command.ts">
+import { Modules, StateMachine } from 'klayr-sdk';
+
+import { createBadgeSchema } from '../schema';
+import { IdentityMethod } from '../../identity/method';
+import { AccountStore } from '../stores/account';
+
+interface Params {
+    id: string;
+}
+
+export class CreateBadgeCommand extends Modules.BaseCommand {
+    public schema = createBadgeSchema;
+    // private _method!: IdentityMethod;
+
+    public init(_args: { method: IdentityMethod }) {
+        // this._method = args.method;
+    }
+
+    public async verify(
+        _context: StateMachine.CommandVerifyContext<Params>,
+    ): Promise<StateMachine.VerificationResult> {
+        // const isAuthority = await this._method.getAccountType(
+        //     _context.getMethodContext(),
+        //     _context.transaction.senderAddress,
+        // );
+        // if (!isAuthority) {
+        //     return { status: VerifyStatus.FAIL, error: new Error('Sender is not an authority') };
+        // }
+
+        // const { id } = _context.params;
+        // const { senderAddress } = _context.transaction;
+        // const accountStore = this.stores.get(AccountStore);
+        // const account = await accountStore.get(_context, senderAddress);
+        // if (account.credentials.find(c => c.id === id)) {
+        //     return { status: VerifyStatus.FAIL, error: new Error('Badge already exists') };
+        // }
+
+        return { status: StateMachine.VerifyStatus.OK };
+    }
+
+    public async execute(_context: StateMachine.CommandExecuteContext<Params>): Promise<void> {
+        const { id } = _context.params;
+        const { senderAddress } = _context.transaction;
+        const accountStore = this.stores.get(AccountStore);
+        const account = await accountStore.get(_context, senderAddress);
+
+        await accountStore.set(_context, senderAddress, {
+            ...account,
+            credentials: [...account.credentials, { id }],
+        });
+    }
+}
+</file>
+
+<file path="src/app/modules/identity/module.ts">
+/* eslint-disable class-methods-use-this */
+/* eslint-disable @typescript-eslint/member-ordering */
+
+import { Modules } from 'klayr-sdk';
+import { InvalidateFeatureCommand } from './commands/invalidate_feature_command';
+import { RemoveFeatureCommand } from './commands/remove_feature_command';
+import { SetFeatureCommand } from './commands/set_feature_command';
+import { ValidateFeatureCommand } from './commands/validate_feature_command';
+import { IdentityEndpoint } from './endpoint';
+import { IdentityMethod } from './method';
+import { NewValidationEvent } from './events/newValidation';
+import { NewInvalidationEvent } from './events/newInvalidation';
+// import { configSchema } from './schema';
+import { SetAccountTypeCommand } from './commands/set_account_type_command';
+import { AccountStore } from './stores/account';
+
+// import { ModuleConfigJSON } from './types';
+
+export const defaultConfig = {
+    features: [],
+    verifications: [],
+};
+
+export class IdentityModule extends Modules.BaseModule {
+    public endpoint = new IdentityEndpoint(this.stores, this.offchainStores);
+    public method = new IdentityMethod(this.stores, this.events);
+    public commands = [
+        new SetFeatureCommand(this.stores, this.events),
+        new InvalidateFeatureCommand(this.stores, this.events),
+        new RemoveFeatureCommand(this.stores, this.events),
+        new ValidateFeatureCommand(this.stores, this.events),
+        new SetAccountTypeCommand(this.stores, this.events),
+    ];
+
+    public constructor() {
+        super();
+        this.stores.register(AccountStore, new AccountStore(this.name, 0));
+
+        this.events.register(NewValidationEvent, new NewValidationEvent(this.name));
+        this.events.register(NewInvalidationEvent, new NewInvalidationEvent(this.name));
+    }
+
+    public metadata(): Modules.ModuleMetadata {
+        return {
+            ...this.baseMetadata(),
+            endpoints: [],
+            assets: [],
+        };
+    }
+
+    // Lifecycle hooks
+    // public async init(_args: ModuleInitArgs): Promise<void> {
+    //     const { moduleConfig } = _args;
+    //     const config = utils.objects.mergeDeep({}, defaultConfig, moduleConfig) as ModuleConfigJSON;
+    //     validator.validate<ModuleConfigJSON>(configSchema, config);
+    // }
+
+    // public async insertAssets(_context: InsertAssetContext) {
+    // 	// initialize block generation, add asset
+    // }
+
+    // public async verifyAssets(_context: BlockVerifyContext): Promise<void> {
+    // 	// verify block
+    // }
+
+    // Lifecycle hooks
+    // public async verifyTransaction(_context: TransactionVerifyContext): Promise<VerificationResult> {
+    // verify transaction will be called multiple times in the transaction pool
+    // return { status: VerifyStatus.OK };
+    // }
+
+    // public async beforeCommandExecute(_context: TransactionExecuteContext): Promise<void> {
+    // }
+
+    // public async afterCommandExecute(_context: TransactionExecuteContext): Promise<void> {
+
+    // }
+    // public async initGenesisState(_context: GenesisBlockExecuteContext): Promise<void> {
+
+    // }
+
+    // public async finalizeGenesisState(_context: GenesisBlockExecuteContext): Promise<void> {
+
+    // }
+
+    // public async beforeTransactionsExecute(_context: BlockExecuteContext): Promise<void> {
+
+    // }
+
+    // public async afterTransactionsExecute(_context: BlockAfterExecuteContext): Promise<void> {
+
+    // }
+}
+</file>
+
+<file path="src/app/plugins/digitalidentity/database.ts">
+import { PrismaClient, Prisma } from '@prisma/client';
+import type { AuthenticatorTransportFuture } from '@simplewebauthn/types';
+import { cryptography } from 'klayr-sdk';
+
+import type { DataEntry } from './controllers/data';
+
+const prisma = new PrismaClient();
+
+export const getUserWithDevicesByPublicKey = async (publicKey: string) =>
+    prisma.user.findUnique({
+        where: {
+            public_key: publicKey,
+        },
+        include: {
+            devices: {
+                include: {
+                    transports: true,
+                },
+            },
+        },
+    });
+
+export const getUserByPublicKey = async (publicKey: string) =>
+    prisma.user.findUnique({
+        where: {
+            public_key: publicKey,
+        },
+    });
+
+export const getAuthenticatorDeviceByCredentialID = async (credentialID: Uint8Array) =>
+    prisma.authenticatorDevice.findFirst({
+        where: {
+            credential_id: Buffer.from(credentialID),
+        },
+        include: {
+            transports: true,
+        },
+    });
+
+export const createUser = async ({
+    publicKey,
+    username,
+    isAuthority,
+    credentialID,
+    credentialPublicKey,
+    counter,
+    transports,
+    layout,
+}: {
+    publicKey: string;
+    username: string;
+    isAuthority: boolean;
+    credentialID: Uint8Array;
+    credentialPublicKey: Uint8Array;
+    counter: number;
+    transports: AuthenticatorTransportFuture[];
+    layout: object;
+}) =>
+    prisma.user.create({
+        data: {
+            public_key: publicKey,
+            address: cryptography.address.getKlayr32AddressFromPublicKey(
+                Buffer.from(publicKey, 'hex'),
+            ),
+            username,
+            isAuthority,
+            layout: JSON.stringify(layout),
+            devices: {
+                create: [
+                    {
+                        credential_id: Buffer.from(credentialID),
+                        credential_public_key: Buffer.from(credentialPublicKey),
+                        counter,
+                        transports: {
+                            create: transports.map(transport => ({
+                                transport: transport === 'smart-card' ? 'smart_card' : transport,
+                            })),
+                        },
+                    },
+                ],
+            },
+        },
+    });
+
+export const createAuthenticatorDevice = async ({
+    publicKey,
+    credentialID,
+    credentialPublicKey,
+    counter,
+    transports,
+}: {
+    publicKey: string;
+    credentialID: Uint8Array;
+    credentialPublicKey: Uint8Array;
+    counter: number;
+    transports: AuthenticatorTransportFuture[];
+}) =>
+    prisma.authenticatorDevice.create({
+        data: {
+            public_key: publicKey,
+            credential_id: Buffer.from(credentialID),
+            credential_public_key: Buffer.from(credentialPublicKey),
+            counter,
+            transports: {
+                create: transports.map(transport => ({
+                    transport: transport === 'smart-card' ? 'smart_card' : transport,
+                })),
+            },
+        },
+    });
+
+export const updateAuthenticatorDevice = async ({
+    credentialID,
+    counter,
+}: {
+    credentialID: Buffer;
+    counter: number;
+}) =>
+    prisma.authenticatorDevice.update({
+        where: {
+            credential_id: credentialID,
+        },
+        data: {
+            counter,
+        },
+    });
+
+export const getUserLayout = async (address: string) => {
+    const user = await prisma.user.findUnique({
+        where: {
+            address,
+        },
+        select: {
+            layout: true,
+        },
+    });
+
+    if (!user) {
+        throw new Error('User not found');
+    }
+
+    return JSON.parse(user.layout as string) as object;
+};
+
+export const updateUserLayout = async ({ address, layout }: { address: string; layout: object }) =>
+    prisma.user.update({
+        where: {
+            address,
+        },
+        data: {
+            layout: JSON.stringify(layout),
+        },
+    });
+
+export const saveUserChallenge = async (publicKey: string, challenge: string | null) =>
+    prisma.userChallenge.upsert({
+        where: {
+            public_key: publicKey,
+        },
+        create: {
+            public_key: publicKey,
+            challenge,
+        },
+        update: {
+            challenge,
+        },
+    });
+
+export const getUserChallenge = async (publicKey: string) => {
+    const user = await prisma.userChallenge.findUnique({
+        where: {
+            public_key: publicKey,
+        },
+    });
+
+    if (!user) {
+        throw new Error('Challenge not found');
+    }
+
+    return user.challenge;
+};
+
+export const saveUserDataEntry = async ({
+    publicKey,
+    domains,
+    data,
+}: {
+    publicKey: string;
+    domains: string[];
+    data: DataEntry[];
+}) => {
+    console.log('Trying to save user data entry', { publicKey, domains, data });
+
+    const userExists = await prisma.user.findUnique({
+        where: { public_key: publicKey },
+    });
+
+    if (!userExists) {
+        throw new Error('User does not exist with the provided public key');
+    }
+
+    await Promise.all(
+        domains.map(async domain => {
+            await Promise.all(
+                data.map(async item => {
+                    console.log('Trying to save data item', {
+                        uuid: item.uuid,
+                        value: item.value,
+                        nonce: item.nonce,
+                    });
+                    const existingEntry = await prisma.userData.findFirst({
+                        where: {
+                            public_key: publicKey,
+                            domain,
+                            label: item.uuid,
+                        },
+                    });
+
+                    console.log('Existing entry', existingEntry);
+
+                    if (existingEntry) {
+                        await prisma.userData.update({
+                            where: {
+                                id: existingEntry.id,
+                            },
+                            data: {
+                                value: item.value,
+                                nonce: item.nonce,
+                            },
+                        });
+                    } else {
+                        console.log('Creating new entry');
+                        await prisma.userData.create({
+                            data: {
+                                public_key: publicKey,
+                                address: cryptography.address.getKlayr32AddressFromPublicKey(
+                                    Buffer.from(publicKey, 'hex'),
+                                ),
+                                domain,
+                                label: item.uuid,
+                                value: item.value,
+                                nonce: item.nonce,
+                            },
+                        });
+                    }
+                }),
+            );
+            if (domain && domain !== publicKey) {
+                await prisma.notification.create({
+                    data: {
+                        public_key: cryptography.address.getKlayr32AddressFromPublicKey(
+                            Buffer.from(publicKey, 'hex'),
+                        ),
+                        for_public_key: cryptography.address.getKlayr32AddressFromPublicKey(
+                            Buffer.from(domain, 'hex'),
+                        ),
+                        type: 'share',
+                        data: JSON.stringify({
+                            features: data.map(item => item.uuid),
+                        }),
+                        timestamp: new Date(),
+                    },
+                });
+            }
+        }),
+    );
+};
+
+export const getPrivateUserDataEntry = async (publicKey: string) => {
+    const entries = await prisma.userData.findMany({
+        where: {
+            public_key: publicKey,
+            domain: publicKey,
+        },
+    });
+
+    return entries.map(
+        entry =>
+            ({
+                uuid: entry.label,
+                value: entry.value,
+                nonce: entry.nonce,
+            } as DataEntry),
+    );
+};
+
+export const getPublicUserDataEntry = async (address: string) => {
+    const entries = await prisma.userData.findMany({
+        where: {
+            address,
+            domain: '',
+        },
+    });
+
+    return entries.map(
+        entry =>
+            ({
+                uuid: entry.label,
+                value: entry.value,
+                nonce: entry.nonce,
+            } as DataEntry),
+    );
+};
+
+export const getSharedUserDataEntry = async (address: string, forPublicKey: string) => {
+    const entries = await prisma.userData.findMany({
+        where: {
+            address,
+            domain: forPublicKey,
+            NOT: {
+                public_key: forPublicKey,
+            },
+        },
+    });
+
+    return entries.map(
+        entry =>
+            ({
+                uuid: entry.label,
+                value: entry.value,
+                nonce: entry.nonce,
+            } as DataEntry),
+    );
+};
+
+export const getIsAuthority = async (address: string) => {
+    const user = await prisma.user.findUnique({
+        where: {
+            address,
+        },
+    });
+
+    if (!user) {
+        throw new Error('User not found');
+    }
+
+    return user.isAuthority;
+};
+
+export const saveBadgeImage = async ({
+    publicKey,
+    fileKey,
+}: {
+    publicKey: string;
+    fileKey: string;
+}) =>
+    prisma.badge.create({
+        data: {
+            public_key: publicKey,
+            fileKey,
+            address: cryptography.address.getKlayr32AddressFromPublicKey(
+                Buffer.from(publicKey, 'hex'),
+            ),
+        },
+    });
+
+export const getBadgeImagesByPublicKey = async (publicKey: string) =>
+    prisma.badge.findMany({
+        where: {
+            public_key: publicKey,
+        },
+    });
+
+export const getBadgeImagesByAddress = async (address: string) =>
+    prisma.badge.findMany({
+        where: {
+            address,
+        },
+    });
+
+export const getBadgeCollections = async (address: string) => {
+    const user = await prisma.user.findUnique({
+        where: {
+            address,
+        },
+        select: {
+            badge_collections: true,
+        },
+    });
+
+    if (!user) {
+        throw new Error('User not found');
+    }
+
+    return user.badge_collections;
+};
+
+export const addBadgeCollection = async (publicKey: string, collection: string) =>
+    prisma.user.update({
+        where: {
+            public_key: publicKey,
+        },
+        data: {
+            badge_collections: {
+                push: collection,
+            },
+        },
+    });
+
+export const getBadgeTags = async (publicKey: string) => {
+    const user = await prisma.user.findUnique({
+        where: {
+            public_key: publicKey,
+        },
+        select: {
+            badge_tags: true,
+        },
+    });
+
+    if (!user) {
+        throw new Error('User not found');
+    }
+
+    return user.badge_tags;
+};
+
+export const addBadgeTags = async (publicKey: string, tags: string[]) => {
+    const user = await prisma.user.findUnique({
+        where: {
+            public_key: publicKey,
+        },
+    });
+
+    if (!user) {
+        throw new Error('User not found');
+    }
+
+    user.badge_tags.push(...tags);
+
+    return prisma.user.update({
+        where: {
+            public_key: publicKey,
+        },
+        data: {
+            badge_tags: user.badge_tags,
+        },
+    });
+};
+
+export const deleteBadgeByFileKey = async (fileKey: string, publicKey: string) =>
+    prisma.badge.deleteMany({
+        where: {
+            fileKey,
+            public_key: publicKey,
+        },
+    });
+
+export const getBadgeByFileKey = async (fileKey: string) =>
+    prisma.badge.findFirst({
+        where: {
+            fileKey,
+        },
+    });
+
+export const saveSignedBadgeJson = async ({
+    fileKey,
+    publicKey,
+    signedBadgeJson,
+}: {
+    fileKey: string;
+    publicKey: string;
+    signedBadgeJson: Prisma.InputJsonValue;
+}) =>
+    prisma.badge.updateMany({
+        where: {
+            fileKey,
+            public_key: publicKey,
+        },
+        data: {
+            signedBadgeJson,
+        },
+    });
+
+export const getSignedBadgeJson = async (fileKey: string) =>
+    prisma.badge.findFirst({
+        where: {
+            fileKey,
+        },
+        select: {
+            signedBadgeJson: true,
+        },
+    });
+
+export const updateBadgeMetadata = async ({
+    fileKey,
+    publicKey,
+    name,
+    description,
+    criteriaNarrative,
+}: {
+    fileKey: string;
+    publicKey: string;
+    name: string;
+    description: string;
+    criteriaNarrative: string;
+}) =>
+    prisma.badge.updateMany({
+        where: {
+            fileKey,
+            public_key: publicKey,
+        },
+        data: {
+            name,
+            description,
+            criteriaNarrative,
+            metadataComplete: true,
+        },
+    });
+
+export const getUserByAddressOrPublicKey = async (identifier: string) =>
+    prisma.user.findFirst({
+        where: {
+            OR: [{ address: identifier }, { public_key: identifier }],
+        },
+    });
+</file>
+
+<file path="src/app/plugins/digitalidentity/digitalidentity_plugin.ts">
+/* eslint-disable @typescript-eslint/no-misused-promises */
+
+import { Plugins } from 'klayr-sdk';
+
+import Fastify from 'fastify';
+import fastifyCors from '@fastify/cors';
+
+import { Endpoint } from './endpoint';
+import * as controllers from './controllers';
+
+const server = Fastify({ logger: true });
+server.register(fastifyCors, {
+    origin: true,
+    credentials: true,
+});
+
+export class DigitalidentityPlugin extends Plugins.BasePlugin {
+    public endpoint = new Endpoint();
+
+    public get nodeModulePath(): string {
+        return __filename;
+    }
+
+    public async load(): Promise<void> {
+        this.endpoint.init();
+
+        server.get('/node/info', controllers.node.info(this.apiClient));
+        server.get('/node/metrics', controllers.node.metrics(this.apiClient));
+        server.get('/node/schema', controllers.node.schema(this.apiClient));
+        server.get('/node/metadata', controllers.node.metadata(this.apiClient));
+
+        server.get('/account', controllers.account.get(this.apiClient));
+        server.get('/account/balance', controllers.account.getBalance(this.apiClient));
+
+        server.get('/register', controllers.auth.register());
+        server.post('/register/verify', controllers.auth.registerVerify());
+
+        server.get('/login', controllers.auth.login());
+        server.post('/login/verify', controllers.auth.loginVerify());
+
+        server.get('/layout', controllers.data.getLayout());
+        server.post(
+            '/layout/update',
+            { preHandler: controllers.auth.jwtVerificationPreHandler() },
+            controllers.data.updateLayout(),
+        );
+
+        server.get(
+            '/data/private',
+            {
+                preHandler: controllers.auth.jwtVerificationPreHandler(),
+            },
+            controllers.data.getPrivateData(),
+        );
+        server.get('/data/public', controllers.data.getPublicData());
+        server.get(
+            '/data/shared',
+            {
+                preHandler: controllers.auth.jwtVerificationPreHandler(),
+            },
+            controllers.data.getSharedData(),
+        );
+        server.post(
+            '/data/save',
+            {
+                preHandler: controllers.auth.jwtVerificationPreHandler(),
+            },
+            controllers.data.saveData(),
+        );
+
+        server.get('/get-user-idntty', controllers.data.getUserIdentity());
+
+        server.post(
+            '/get-upload-url',
+            {
+                preHandler: controllers.auth.jwtVerificationPreHandler(),
+            },
+            controllers.s3.getUploadUrl(),
+        );
+
+        server.post(
+            '/remove-uploaded-image',
+            {
+                preHandler: controllers.auth.jwtVerificationPreHandler(),
+            },
+            controllers.s3.removeUploadedImage(),
+        );
+
+        server.get('/get-uploaded-images', controllers.s3.getUploadedImages());
+
+        server.get('/get-notifications', controllers.events.getNotifications());
+        server.get('/get-transactions', controllers.events.getTransactions());
+        server.get('/get-number-of-transactions', controllers.events.getNumberOfTransactions());
+
+        server.get('/get-collections', controllers.data.getCollections());
+        server.post(
+            '/add-collection',
+            { preHandler: controllers.auth.jwtVerificationPreHandler() },
+            controllers.data.addCollection(),
+        );
+
+        server.get('/get-tags', controllers.data.getTags());
+        server.post(
+            '/add-tags',
+            { preHandler: controllers.auth.jwtVerificationPreHandler() },
+            controllers.data.addTags(),
+        );
+
+        server.post(
+            '/obv3/badge-definition',
+            { preHandler: controllers.auth.jwtVerificationPreHandler() },
+            controllers.badge.updateBadgeDefinition(),
+        );
+
+        server.get('/obv3/profile/:authorityIdentifier', controllers.badge.getIssuerProfile());
+
+        server.get('/obv3/keys/:address', controllers.badge.getPublicKeyJwk());
+
+        server.post(
+            '/obv3/signed-badge',
+            { preHandler: controllers.auth.jwtVerificationPreHandler() },
+            controllers.badge.saveSignedBadgeJsonHandler(),
+        );
+
+        server.get('/obv3/signed-badge/:fileKey', controllers.badge.getSignedBadgeJsonHandler());
+
+        server.listen({ port: 8000 });
+        console.log('DI:Loaded');
+    }
+
+    public async unload(): Promise<void> {}
+}
+</file>
+
+<file path="prisma/schema.prisma">
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  public_key        String                @id
+  address           String                @unique
+  username          String
+  layout            Json
+  isAuthority       Boolean
+  devices           AuthenticatorDevice[]
+  badges            Badge[]
+  userData          UserData[]            @relation("UserToUserData")
+  badge_collections String[]              @default([])
+  badge_tags        String[]              @default([])
+
+  @@map("users")
+}
+
+model UserData {
+  id         Int     @id @default(autoincrement())
+  public_key String
+  address    String
+  domain     String?
+  label      String
+  value      String
+  nonce      String
+  user       User    @relation("UserToUserData", fields: [public_key], references: [public_key])
+
+  @@map("userdata")
+}
+
+model AuthenticatorDevice {
+  credential_id         Bytes                    @id
+  credential_public_key Bytes
+  counter               Int
+  public_key            String
+  user                  User                     @relation(fields: [public_key], references: [public_key])
+  transports            AuthenticatorTransport[]
+
+  @@map("authenticator_devices")
+}
+
+model AuthenticatorTransport {
+  device_id Bytes
+  transport AuthenticatorTransportFuture
+  device    AuthenticatorDevice          @relation(fields: [device_id], references: [credential_id])
+
+  @@id([device_id, transport])
+  @@map("authenticator_transports")
+}
+
+model UserChallenge {
+  id         Int     @id @default(autoincrement())
+  public_key String  @unique
+  challenge  String?
+
+  @@map("user_challenges")
+}
+
+model Badge {
+  id                Int     @id @default(autoincrement())
+  fileKey           String
+  public_key        String
+  address           String
+  name              String?
+  description       String?
+  criteriaNarrative String?
+  metadataComplete  Boolean @default(false)
+  signedBadgeJson   Json? // Store the complete signed OBv3 badge JSON
+  user              User    @relation(fields: [public_key], references: [public_key])
+
+  @@map("badges")
+}
+
+model Notification {
+  id             Int      @id @default(autoincrement())
+  public_key     String
+  for_public_key String?
+  type           String
+  data           Json
+  timestamp      DateTime
+
+  @@map("notifications")
+}
+
+model Transaction {
+  id             Int      @id @default(autoincrement())
+  tx_id          String
+  block_height   Int
+  price          BigInt
+  public_key     String
+  for_public_key String?
+  type           String
+  data           Json
+  timestamp      DateTime
+
+  @@map("transactions")
+}
+
+model Faucet {
+  id                Int          @id @default(autoincrement())
+  public_key        String
+  email             String
+  amount            BigInt
+  timestamp         DateTime
+  status            FaucetStatus
+  verification_code String
+
+  @@map("faucet")
+}
+
+enum AuthenticatorTransportFuture {
+  ble
+  cable
+  hybrid
+  internal
+  nfc
+  smart_card
+  usb
+}
+
+enum FaucetStatus {
+  pending
+  completed
+  failed
+}
+</file>
+
+<file path="src/app/modules/identity/commands/set_feature_command.ts">
+/* eslint-disable class-methods-use-this */
+
+import { Modules, StateMachine, cryptography } from 'klayr-sdk';
+
+import { AccountStore, AccountStoreData } from '../stores/account';
+
+import { setFeatureSchema } from '../schema';
+
+interface Params {
+    features: {
+        label: string;
+        value: string;
+    }[];
+}
+
+export class SetFeatureCommand extends Modules.BaseCommand {
+    public schema = setFeatureSchema;
+
+    public async verify(
+        _context: StateMachine.CommandVerifyContext<Params>,
+    ): Promise<StateMachine.VerificationResult> {
+        const { params, transaction } = _context;
+        const accountSubstore = this.stores.get(AccountStore);
+
+        let isAuthority = false;
+        try {
+            const account = await accountSubstore.get(_context, transaction.senderAddress);
+            isAuthority = account.isAuthority;
+        } catch (error) {
+            console.log('Account not found, considering it to be an identity account');
+        }
+
+        if (isAuthority && transaction.fee < 1999000000) {
+            return {
+                status: StateMachine.VerifyStatus.FAIL,
+                error: new Error(
+                    'Fee is too low. Min fee for setFeature for authority accounts is 1999000000',
+                ),
+            };
+        }
+
+        if (!isAuthority && transaction.fee < 99000000) {
+            return {
+                status: StateMachine.VerifyStatus.FAIL,
+                error: new Error('Fee is too low. Min fee for setFeature is 99000000'),
+            };
+        }
+
+        const uniqueLabels: string[] = [];
+        params.features.forEach(feature => {
+            if (uniqueLabels.includes(feature.label)) {
+                throw new Error('Transaction validation error: Labels mast be unique');
+            } else {
+                uniqueLabels.push(feature.label);
+            }
+        });
+
+        return { status: StateMachine.VerifyStatus.OK };
+    }
+
+    public async execute(_context: StateMachine.CommandExecuteContext<Params>): Promise<void> {
+        const { features } = _context.params;
+        const { senderAddress } = _context.transaction;
+        const accountSubstore = this.stores.get(AccountStore);
+
+        console.log('Sender address:', senderAddress.toString('hex'));
+        console.log('Converted:', cryptography.address.getKlayr32AddressFromAddress(senderAddress));
+
+        for (const feature of features) {
+            let isUnique = true;
+
+            console.log('Currently on feature:', feature);
+
+            let account: AccountStoreData;
+            try {
+                account = await accountSubstore.get(_context, senderAddress);
+                console.log('Current account features:', account.features);
+            } catch (error) {
+                console.error(error);
+                console.log('Account not found, creating it for:', senderAddress);
+                account = {
+                    features: [],
+                    verifications: [],
+                    isAuthority: false,
+                };
+            }
+
+            for (const accountFeature of account.features) {
+                console.log('Currently on account feature:', accountFeature);
+
+                if (
+                    feature.label === accountFeature.label &&
+                    feature.value === accountFeature.value
+                ) {
+                    throw new Error(
+                        'State modification error: The new value must be different from the existing',
+                    );
+                }
+                if (feature.label === accountFeature.label) {
+                    isUnique = false;
+                    console.log('Feature already exists, updating it:', feature.label);
+                    await accountSubstore.set(_context, senderAddress, {
+                        ...account,
+                        features: account.features.map(f =>
+                            f.label === feature.label ? feature : f,
+                        ),
+                    });
+                }
+            }
+
+            if (isUnique) {
+                console.log('Feature is unique, adding it:', feature.label);
+                await accountSubstore.set(_context, senderAddress, {
+                    ...account,
+                    features: [...account.features, feature],
+                });
+            } else {
+                console.log('Removing verifications for feature:', feature);
+                await accountSubstore.set(_context, senderAddress, {
+                    ...account,
+                    verifications: account.verifications.filter(v => v.label !== feature.label),
+                });
+            }
+        }
+
+        console.log('New account data:', await accountSubstore.get(_context, senderAddress));
+    }
+}
+</file>
+
+<file path="src/app/modules/identity/schema.ts">
+export const setFeatureSchema = {
+    $id: 'identity/setFeature-params',
+    title: 'Command schema to set or update account features for identity module',
+    type: 'object',
+    required: ['features'],
+    properties: {
+        features: {
+            fieldNumber: 1,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: {
+                type: 'object',
+                required: ['label', 'value'],
+                properties: {
+                    label: { fieldNumber: 1, dataType: 'string', maxLength: 40 },
+                    value: { fieldNumber: 2, dataType: 'string', maxLength: 1024 },
+                },
+            },
+        },
+    },
+};
+
+export const removeFeatureSchema = {
+    $id: 'identity/removeFeature-params',
+    title: 'Command schema to remove account features for identity module',
+    type: 'object',
+    required: ['features'],
+    properties: {
+        features: {
+            fieldNumber: 1,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: {
+                type: 'object',
+                required: ['label'],
+                properties: {
+                    label: { fieldNumber: 1, dataType: 'string', maxLength: 40 },
+                },
+            },
+        },
+    },
+};
+
+export const validateFeatureSchema = {
+    $id: 'identity/validateFeature-params',
+    title: 'Command schema to validate account features for identity module',
+    type: 'object',
+    required: ['recipientAddress', 'features'],
+    properties: {
+        recipientAddress: { fieldNumber: 1, dataType: 'string', minLength: 41, maxLength: 42 },
+        features: {
+            fieldNumber: 2,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: {
+                type: 'object',
+                required: ['label', 'value'],
+                properties: {
+                    label: { fieldNumber: 1, dataType: 'string', maxLength: 40 },
+                    value: { fieldNumber: 2, dataType: 'string', maxLength: 1024 },
+                },
+            },
+        },
+    },
+};
+
+export const invalidateFeatureSchema = {
+    $id: 'identity/invalidateFeature-params',
+    title: 'Command schema to invalidate account features for identity module',
+    type: 'object',
+    required: ['recipientAddress', 'features'],
+    properties: {
+        recipientAddress: { fieldNumber: 1, dataType: 'string', minLength: 41, maxLength: 42 },
+        features: {
+            fieldNumber: 2,
+            type: 'array',
+            minItems: 1,
+            maxItems: 16,
+            items: {
+                type: 'object',
+                required: ['label'],
+                properties: {
+                    label: { fieldNumber: 1, dataType: 'string', maxLength: 40 },
+                },
+            },
+        },
+    },
+};
+
+export const setAccountTypeSchema = {
+    $id: 'identity/setAccountType-params',
+    title: 'Command schema to set account type for identity module',
+    type: 'object',
+    required: ['isAuthority'],
+    properties: {
+        isAuthority: { fieldNumber: 1, dataType: 'boolean' },
+    },
+};
+</file>
+
+<file path="src/app/plugins/digitalidentity/controllers/events.ts">
+import type { FastifyRequest, FastifyReply } from 'fastify';
+import { isWithinInterval } from 'date-fns';
+
+import { getUserNotifications, getUserTransactions } from '../../event_listener/database';
+
+export const getNotifications =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: {
+                address?: string;
+                forAddress?: string;
+                notificationType?: string;
+                startDate?: number;
+                endDate?: number;
+                amount?: number;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const { address, forAddress, startDate, endDate, amount } = req.query;
+
+        if (amount && startDate && endDate) {
+            return res.status(400).send('Amount, startDate and endDate cannot be used together');
+        }
+
+        const notifications = await getUserNotifications(address, forAddress);
+
+        if (amount) {
+            return res.send(notifications.slice(-amount));
+        }
+
+        if (!startDate || !endDate) {
+            return res.send(notifications);
+        }
+
+        return res.send(
+            notifications.filter(notification =>
+                isWithinInterval(notification.timestamp, {
+                    start: new Date(startDate * 1000),
+                    end: new Date(endDate * 1000),
+                }),
+            ),
+        );
+    };
+
+export const getTransactions =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: {
+                publicKey?: string;
+                forPublicKey?: string;
+                transactionType?: string;
+                blockHeight?: number;
+                txID?: string;
+                startDate?: number;
+                endDate?: number;
+                amount?: number;
+                or?: boolean;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const {
+            publicKey,
+            forPublicKey,
+            transactionType,
+            blockHeight,
+            txID,
+            startDate,
+            endDate,
+            amount,
+            or,
+        } = req.query;
+
+        if (amount && startDate && endDate) {
+            return res.status(400).send('Amount, startDate and endDate cannot be used together');
+        }
+
+        const transactions = await getUserTransactions(
+            publicKey,
+            forPublicKey,
+            transactionType,
+            blockHeight,
+            txID,
+            or,
+        );
+
+        const serializedTransactions = transactions.map(transaction => ({
+            ...transaction,
+            price: transaction.price.toString(),
+        }));
+
+        if (amount) {
+            return res.send(serializedTransactions.slice(-amount));
+        }
+
+        if (!startDate || !endDate) {
+            return res.send(serializedTransactions);
+        }
+
+        return res.send(
+            serializedTransactions.filter(transaction =>
+                isWithinInterval(transaction.timestamp, {
+                    start: new Date(startDate * 1000),
+                    end: new Date(endDate * 1000),
+                }),
+            ),
+        );
+    };
+
+export const getNumberOfTransactions =
+    () =>
+    async (
+        req: FastifyRequest<{
+            Querystring: {
+                publicKey?: string;
+                forPublicKey?: string;
+                transactionType?: string;
+                blockHeight?: number;
+                txID?: string;
+                startDate?: number;
+                endDate?: number;
+                or?: boolean;
+            };
+        }>,
+        res: FastifyReply,
+    ) => {
+        const {
+            publicKey,
+            forPublicKey,
+            transactionType,
+            blockHeight,
+            txID,
+            startDate,
+            endDate,
+            or,
+        } = req.query;
+
+        const transactions = await getUserTransactions(
+            publicKey,
+            forPublicKey,
+            transactionType,
+            blockHeight,
+            txID,
+            or,
+        );
+
+        if (!startDate || !endDate) {
+            return res.send(transactions.length);
+        }
+
+        return res.send(
+            transactions.filter(transaction =>
+                isWithinInterval(transaction.timestamp, {
+                    start: new Date(startDate * 1000),
+                    end: new Date(endDate * 1000),
+                }),
+            ).length,
+        );
+    };
+</file>
+
+<file path="src/app/plugins/event_listener/database.ts">
+import { PrismaClient } from '@prisma/client';
+// import { cryptography } from 'klayr-sdk';
+
+const prisma = new PrismaClient();
+
+export interface Notification {
+    address: string;
+    forAddress?: string;
+    notificationType: string;
+    data: Record<string, unknown>;
+}
+
+export const saveUserNotifications = async (notifications: Notification[]) =>
+    prisma.notification.createMany({
+        data: notifications.map(({ address, forAddress, notificationType, data }) => {
+            const timestamp = new Date();
+            return {
+                public_key: address,
+                for_public_key: forAddress,
+                type: notificationType,
+                data: JSON.stringify(data, (_, value) =>
+                    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+                    typeof value === 'bigint' ? value.toString() : value,
+                ),
+                timestamp,
+            };
+        }),
+    });
+
+export const getUserNotifications = async (address?: string, forAddress?: string) =>
+    prisma.notification.findMany({
+        where: {
+            public_key: address,
+            for_public_key: forAddress,
+        },
+        orderBy: {
+            timestamp: 'asc',
+        },
+    });
+
+export interface Transaction {
+    publicKey: string;
+    forPublicKey?: string;
+    transactionType: string;
+    blockHeight: number;
+    price: bigint;
+    txID: string;
+    data: Record<string, unknown>;
+}
+
+export const saveUserTransactions = async (transactions: Transaction[]) =>
+    prisma.transaction.createMany({
+        data: transactions.map(
+            ({ publicKey, forPublicKey, transactionType, blockHeight, price, txID, data }) => {
+                const timestamp = new Date();
+                return {
+                    public_key: publicKey,
+                    for_public_key: forPublicKey,
+                    type: transactionType,
+                    block_height: blockHeight,
+                    price,
+                    tx_id: txID,
+                    data: JSON.stringify(data, (_, value) =>
+                        // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+                        typeof value === 'bigint' ? value.toString() : value,
+                    ),
+                    timestamp,
+                };
+            },
+        ),
+    });
+
+export const getUserTransactions = async (
+    publicKey?: string,
+    forPublicKey?: string,
+    transactionType?: string,
+    blockHeight?: number,
+    txID?: string,
+    or = false,
+) => {
+    const whereClause = or
+        ? {
+              OR: [{ public_key: publicKey }, { for_public_key: forPublicKey }],
+          }
+        : {
+              public_key: publicKey,
+              for_public_key: forPublicKey,
+              type: transactionType,
+              block_height: blockHeight,
+              tx_id: txID,
+          };
+    return prisma.transaction.findMany({
+        where: whereClause,
+        orderBy: {
+            timestamp: 'asc',
+        },
+    });
+};
+</file>
+
+<file path="src/app/plugins/event_listener/event_listener_plugin.ts">
+import { Plugins, cryptography } from 'klayr-sdk';
+import type { BlockJSON } from '@klayr/api-client/dist-node/types';
+import { inspect } from 'util';
+
+import { saveUserTransactions, saveUserNotifications } from './database';
+
+export class EventListenerPlugin extends Plugins.BasePlugin {
+    public get nodeModulePath(): string {
+        return __filename;
+    }
+
+    public async load(): Promise<void> {
+        this.apiClient.subscribe('network_newBlock', async _data => {
+            // const blockData = data as { blockHeader: { height: number } };
+            // console.log('NEW BLOCK HEIGHT: ', blockData.blockHeader.height);
+            const encodedBlock = await this.apiClient.invoke('chain_getLastBlock');
+            const block = this.apiClient.block.fromJSON(encodedBlock as unknown as BlockJSON);
+            console.log('New block:', inspect(block, { depth: null, colors: true }));
+            await saveUserTransactions(
+                block.transactions.map(tx => {
+                    let forPublicKey: string | undefined;
+                    if (
+                        ['validateFeature', 'invalidateFeature', 'issueBadge'].includes(tx.command)
+                    ) {
+                        forPublicKey = tx.params.recipientAddress as string;
+                    } else if (tx.command === 'transfer') {
+                        forPublicKey = cryptography.address.getKlayr32AddressFromAddress(
+                            tx.params.recipientAddress as Buffer,
+                        );
+                    }
+                    return {
+                        publicKey: tx.senderPublicKey.toString('hex'),
+                        forPublicKey,
+                        transactionType: tx.command,
+                        blockHeight: block.header.height,
+                        price: tx.fee,
+                        txID: tx.id.toString('hex'),
+                        data: tx.params,
+                    };
+                }),
+            );
+            await saveUserNotifications(
+                block.transactions
+                    .filter(tx => tx.command === 'issueBadge')
+                    .map(tx => ({
+                        address: cryptography.address.getKlayr32AddressFromPublicKey(
+                            tx.senderPublicKey,
+                        ),
+                        forAddress: cryptography.address.getKlayr32AddressFromAddress(
+                            Buffer.from(tx.params.recipientAddress as string, 'hex'),
+                        ),
+                        notificationType: 'issueBadge',
+                        data: tx.params,
+                    })),
+            );
+        });
+    }
+
+    public async unload(): Promise<void> {}
+}
+</file>
+
+</files>

@@ -106,6 +106,26 @@ export class DigitalidentityPlugin extends Plugins.BasePlugin {
             controllers.data.addTags(),
         );
 
+        server.post(
+            '/obv3/badge-definition',
+            { preHandler: controllers.auth.jwtVerificationPreHandler() },
+            controllers.badge.updateBadgeDefinition(),
+        );
+
+        server.get('/obv3/profile/:authorityIdentifier', controllers.badge.getIssuerProfile());
+
+        server.get('/obv3/keys/:address', controllers.badge.getPublicKeyJwk());
+
+        server.post(
+            '/obv3/signed-badge',
+            { preHandler: controllers.auth.jwtVerificationPreHandler() },
+            controllers.badge.saveSignedBadgeJsonHandler(),
+        );
+
+        server.get('/obv3/signed-badge/:fileKey', controllers.badge.getSignedBadgeJsonHandler());
+
+        server.get('/obv3/badge/:fileKey', controllers.badge.getFullBadgeDetailsHandler());
+
         server.listen({ port: 8000 });
         console.log('DI:Loaded');
     }

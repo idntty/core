@@ -1,10 +1,11 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../generated/client"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  url      = env("SIGNER_DATABASE_URL")
 }
 
 model User {
@@ -14,12 +15,19 @@ model User {
   layout            Json
   isAuthority       Boolean
   devices           AuthenticatorDevice[]
-  badges            Badge[]
   userData          UserData[]            @relation("UserToUserData")
   badge_collections String[]              @default([])
   badge_tags        String[]              @default([])
 
   @@map("users")
+}
+
+model UserChallenge {
+  id         Int     @id @default(autoincrement())
+  public_key String  @unique
+  challenge  String?
+
+  @@map("user_challenges")
 }
 
 model UserData {
@@ -55,29 +63,6 @@ model AuthenticatorTransport {
   @@map("authenticator_transports")
 }
 
-model UserChallenge {
-  id         Int     @id @default(autoincrement())
-  public_key String  @unique
-  challenge  String?
-
-  @@map("user_challenges")
-}
-
-model Badge {
-  id                Int     @id @default(autoincrement())
-  fileKey           String
-  public_key        String
-  address           String
-  name              String?
-  description       String?
-  criteriaNarrative String?
-  metadataComplete  Boolean @default(false)
-  signedBadgeJson   Json? // Store the complete signed OBv3 badge JSON
-  user              User    @relation(fields: [public_key], references: [public_key])
-
-  @@map("badges")
-}
-
 model Notification {
   id             Int      @id @default(autoincrement())
   public_key     String
@@ -89,32 +74,6 @@ model Notification {
   @@map("notifications")
 }
 
-model Transaction {
-  id             Int      @id @default(autoincrement())
-  tx_id          String
-  block_height   Int
-  price          BigInt
-  public_key     String
-  for_public_key String?
-  type           String
-  data           Json
-  timestamp      DateTime
-
-  @@map("transactions")
-}
-
-model Faucet {
-  id                Int          @id @default(autoincrement())
-  public_key        String
-  email             String
-  amount            BigInt
-  timestamp         DateTime
-  status            FaucetStatus
-  verification_code String
-
-  @@map("faucet")
-}
-
 enum AuthenticatorTransportFuture {
   ble
   cable
@@ -123,10 +82,4 @@ enum AuthenticatorTransportFuture {
   nfc
   smart_card
   usb
-}
-
-enum FaucetStatus {
-  pending
-  completed
-  failed
 }

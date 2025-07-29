@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import type { AuthenticatorTransportFuture } from '@simplewebauthn/types';
 import { cryptography } from 'klayr-sdk';
 
@@ -30,7 +30,7 @@ export const getUserByPublicKey = async (publicKey: string) =>
 export const getAuthenticatorDeviceByCredentialID = async (credentialID: Uint8Array) =>
     prisma.authenticatorDevice.findFirst({
         where: {
-            credential_id: Buffer.from(credentialID),
+            credential_id: Uint8Array.from(credentialID),
         },
         include: {
             transports: true,
@@ -68,8 +68,8 @@ export const createUser = async ({
             devices: {
                 create: [
                     {
-                        credential_id: Buffer.from(credentialID),
-                        credential_public_key: Buffer.from(credentialPublicKey),
+                        credential_id: Uint8Array.from(credentialID),
+                        credential_public_key: Uint8Array.from(credentialPublicKey),
                         counter,
                         transports: {
                             create: transports.map(transport => ({
@@ -98,8 +98,8 @@ export const createAuthenticatorDevice = async ({
     prisma.authenticatorDevice.create({
         data: {
             public_key: publicKey,
-            credential_id: Buffer.from(credentialID),
-            credential_public_key: Buffer.from(credentialPublicKey),
+            credential_id: Uint8Array.from(credentialID),
+            credential_public_key: Uint8Array.from(credentialPublicKey),
             counter,
             transports: {
                 create: transports.map(transport => ({
@@ -113,7 +113,7 @@ export const updateAuthenticatorDevice = async ({
     credentialID,
     counter,
 }: {
-    credentialID: Buffer;
+    credentialID: Uint8Array;
     counter: number;
 }) =>
     prisma.authenticatorDevice.update({
@@ -442,5 +442,90 @@ export const deleteBadgeByFileKey = async (fileKey: string, publicKey: string) =
         where: {
             fileKey,
             public_key: publicKey,
+        },
+    });
+
+export const getBadgeByFileKey = async (fileKey: string) =>
+    prisma.badge.findFirst({
+        where: {
+            fileKey,
+        },
+    });
+
+export const saveSignedBadgeJson = async ({
+    fileKey,
+    publicKey,
+    signedBadgeJson,
+}: {
+    fileKey: string;
+    publicKey: string;
+    signedBadgeJson: Prisma.InputJsonValue;
+}) =>
+    prisma.badge.updateMany({
+        where: {
+            fileKey,
+            public_key: publicKey,
+        },
+        data: {
+            signedBadgeJson,
+        },
+    });
+
+export const getSignedBadgeJson = async (fileKey: string) =>
+    prisma.badge.findFirst({
+        where: {
+            fileKey,
+        },
+        select: {
+            signedBadgeJson: true,
+        },
+    });
+
+export const getFullBadgeDetails = async (fileKey: string) =>
+    prisma.badge.findFirst({
+        where: {
+            fileKey,
+        },
+        include: {
+            user: {
+                select: {
+                    username: true,
+                    address: true,
+                    isAuthority: true,
+                },
+            },
+        },
+    });
+
+export const updateBadgeMetadata = async ({
+    fileKey,
+    publicKey,
+    name,
+    description,
+    criteriaNarrative,
+}: {
+    fileKey: string;
+    publicKey: string;
+    name: string;
+    description: string;
+    criteriaNarrative: string;
+}) =>
+    prisma.badge.updateMany({
+        where: {
+            fileKey,
+            public_key: publicKey,
+        },
+        data: {
+            name,
+            description,
+            criteriaNarrative,
+            metadataComplete: true,
+        },
+    });
+
+export const getUserByAddressOrPublicKey = async (identifier: string) =>
+    prisma.user.findFirst({
+        where: {
+            OR: [{ address: identifier }, { public_key: identifier }],
         },
     });

@@ -1,0 +1,85 @@
+generator client {
+    provider = "prisma-client-js"
+    output   = "../generated/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("SIGNER_DATABASE_URL")
+}
+
+model User {
+    public_key        String                @id
+    address           String                @unique
+    username          String
+    layout            Json
+    isAuthority       Boolean
+    devices           AuthenticatorDevice[]
+    userData          UserData[]            @relation("UserToUserData")
+    badge_collections String[]              @default([])
+    badge_tags        String[]              @default([])
+
+    @@map("users")
+}
+
+model UserChallenge {
+    id         Int     @id @default(autoincrement())
+    public_key String  @unique
+    challenge  String?
+
+    @@map("user_challenges")
+}
+
+model UserData {
+    id         Int     @id @default(autoincrement())
+    public_key String
+    address    String
+    domain     String?
+    label      String
+    value      String
+    nonce      String
+    user       User    @relation("UserToUserData", fields: [public_key], references: [public_key])
+
+    @@map("userdata")
+}
+
+model AuthenticatorDevice {
+    credential_id         Bytes                    @id
+    credential_public_key Bytes
+    counter               Int
+    public_key            String
+    user                  User                     @relation(fields: [public_key], references: [public_key])
+    transports            AuthenticatorTransport[]
+
+    @@map("authenticator_devices")
+}
+
+model AuthenticatorTransport {
+    device_id Bytes
+    transport AuthenticatorTransportFuture
+    device    AuthenticatorDevice          @relation(fields: [device_id], references: [credential_id])
+
+    @@id([device_id, transport])
+    @@map("authenticator_transports")
+}
+
+model Notification {
+    id             Int      @id @default(autoincrement())
+    public_key     String
+    for_public_key String?
+    type           String
+    data           Json
+    timestamp      DateTime
+
+    @@map("notifications")
+}
+
+enum AuthenticatorTransportFuture {
+    ble
+    cable
+    hybrid
+    internal
+    nfc
+    smart_card
+    usb
+}
